@@ -7,6 +7,8 @@ const fs = require('fs');
 
 const git = simpleGit();
 
+const { buildImage } = require('../services/dockerService');
+
 router.post('/webhook', verifyGitHubWebhook, async (req, res) => {
 
 
@@ -29,6 +31,9 @@ router.post('/webhook', verifyGitHubWebhook, async (req, res) => {
     const repoName = repository.name;
     const downloadPath = path.join(__dirname, '../../temp', repoName);
 
+    // 🚀 THE FIX: Reply to GitHub IMMEDIATELY (Status 202 means "Accepted for processing")
+    res.status(202).send('Webhook received. Build pipeline started in the background.');
+
     console.log(`📦 New push detected! Cloning ${repoName}...`);
 
     try {
@@ -41,13 +46,19 @@ router.post('/webhook', verifyGitHubWebhook, async (req, res) => {
         await git.clone(repoUrl, downloadPath);
         console.log(`✅ ${repoName} cloned successfully to ${downloadPath}`);
 
-        // TODO: Next step - Trigger Docker Build here!
+        // NEW: Trigger Docker Build
+        const buildResult = await buildImage(repoName, downloadPath);
         
-        res.status(200).send('Clone successful. Build triggered.');
+        console.log(`🚀 Image ${buildResult.imageName} is ready for deployment!`);
+
+        // (You can't do res.send() here anymore because you already sent it above)
+        // Later, this is where you will update your database so your React UI 
+        // changes from "Building..." to "Live!"
     } catch (err) {
-        console.error('❌ Cloning failed:', err);
-        res.status(500).send('Internal Server Error during cloning');
+        console.error('❌ Pipeline failed:', err);
+        res.status(500).send('Pipeline failed during build.');
     }
+
 });
 
 module.exports = router;
