@@ -6,6 +6,8 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const deployRoutes = require('./src/routes/deployRoutes');
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -67,6 +69,8 @@ app.get('/auth/github/callback', async (req, res) => {
 app.post('/api/webhook', (req, res) => {
     res.json({ message: "Webhook received" });
 });
+
+app.use('/api', deployRoutes);
 
 // 3. Predictive Cost Engine (Phase 3 - Research Core)
 app.post('/api/predict-cost', (req, res) => {
