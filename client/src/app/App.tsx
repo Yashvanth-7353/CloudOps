@@ -1,0 +1,44 @@
+import { BrowserRouter as Router } from 'react-router-dom';
+import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
+import Routes from './router';
+import AppBackground from '@/components/layout/AppBackground';
+import { ThemeProvider } from '@/context/ThemeContext';
+import { ToastProvider } from '@/components/ui/ToastProvider';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import './App.css';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      gcTime: 1000 * 60 * 10, // 10 minutes (formerly cacheTime)
+    },
+  },
+});
+
+function App() {
+  return (
+    <ThemeProvider>
+      <ToastProvider>
+        <ErrorBoundary>
+          <QueryClientProvider client={queryClient}>
+            <Router>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.5 }}
+                className="relative min-h-screen overflow-hidden bg-background"
+              >
+                <AppBackground />
+                <Routes />
+              </motion.div>
+            </Router>
+          </QueryClientProvider>
+        </ErrorBoundary>
+      </ToastProvider>
+    </ThemeProvider>
+  );
+}
+
+export default App;

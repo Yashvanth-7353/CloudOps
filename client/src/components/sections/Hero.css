@@ -1,0 +1,417 @@
+/* ============================================
+   Hero Section Styles
+   Futuristic DevOps Landing Page
+   ============================================ */
+
+.hero-section {
+  background: linear-gradient(
+    135deg,
+    var(--color-bg-primary) 0%,
+    #0f1530 50%,
+    var(--color-bg-primary) 100%
+  );
+  position: relative;
+}
+
+/* Grid Background Effect */
+.hero-grid {
+  background-image:
+    linear-gradient(0deg, transparent 24%, rgba(100, 99, 255, 0.05) 25%, rgba(100, 99, 255, 0.05) 26%, transparent 27%, transparent 74%, rgba(100, 99, 255, 0.05) 75%, rgba(100, 99, 255, 0.05) 76%, transparent 77%, transparent),
+    linear-gradient(90deg, transparent 24%, rgba(100, 99, 255, 0.05) 25%, rgba(100, 99, 255, 0.05) 26%, transparent 27%, transparent 74%, rgba(100, 99, 255, 0.05) 75%, rgba(100, 99, 255, 0.05) 76%, transparent 77%, transparent);
+  background-size: 80px 80px;
+  background-position: 0 0, 40px 40px;
+  animation: grid-flow 20s linear infinite;
+}
+
+@keyframes grid-flow {
+  0% {
+    background-position: 0 0, 40px 40px;
+  }
+  100% {
+    background-position: 80px 80px, 120px 120px;
+  }
+}
+
+/* Hero Headline */
+.hero-headline {
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  animation: headline-glow 3s ease-in-out infinite;
+}
+
+@keyframes headline-glow {
+  0%, 100% {
+    text-shadow: 
+      0 0 20px rgba(108, 99, 255, 0.3),
+      0 0 40px rgba(0, 212, 255, 0.1);
+  }
+  50% {
+    text-shadow: 
+      0 0 30px rgba(108, 99, 255, 0.5),
+      0 0 60px rgba(0, 212, 255, 0.2);
+  }
+}
+
+/* Responsive Hero Headline */
+@media (max-width: 768px) {
+  .hero-headline {
+    font-size: 2rem;
+    letter-spacing: -0.015em;
+  }
+}
+
+/* Gradient Animation */
+@keyframes gradient-rotate {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-gradient-rotate {
+  background-size: 200% 200%;
+  animation: gradient-rotate 4s ease infinite;
+}
+
+/* Pipeline Stage Hover Effects */
+.pipeline-stage {
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pipeline-stage:hover {
+  transform: translateY(-4px);
+}
+
+/* Glassmorphism Effect for Pipeline */
+.hero-pipeline-container {
+  background: rgba(19, 26, 42, 0.4);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 
+    inset 0 0 60px rgba(108, 99, 255, 0.1),
+    0 8px 32px rgba(31, 38, 135, 0.37);
+}
+
+.hero-pipeline-container:hover {
+  background: rgba(19, 26, 42, 0.5);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 
+    inset 0 0 80px rgba(108, 99, 255, 0.15),
+    0 12px 48px rgba(31, 38, 135, 0.45);
+}
+
+/* Button Styles */
+.hero-btn {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hero-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  transition: left 0.5s;
+}
+
+.hero-btn:hover::before {
+  left: 100%;
+}
+
+/* Primary Button */
+.btn-primary {
+  background: linear-gradient(135deg, var(--color-primary) 0%, #5d54dd 100%);
+  box-shadow: 0 10px 30px rgba(108, 99, 255, 0.3);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 20px 40px rgba(108, 99, 255, 0.5);
+  transform: translateY(-2px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 5px 15px rgba(108, 99, 255, 0.3);
+}
+
+/* Secondary Button */
+.btn-secondary {
+  background: rgba(19, 26, 42, 0.6);
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-accent);
+  background: rgba(19, 26, 42, 0.8);
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+}
+
+.btn-secondary:active {
+  transform: scale(0.98);
+}
+
+/* Stats Grid Animation */
+@keyframes stat-scale {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.hero-stat {
+  animation: stat-scale 2s ease-in-out infinite;
+}
+
+.hero-stat:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.hero-stat:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* Scroll Indicator */
+.scroll-indicator {
+  animation: scroll-bounce 2s ease-in-out infinite;
+}
+
+@keyframes scroll-bounce {
+  0%, 100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(8px);
+    opacity: 0.7;
+  }
+}
+
+/* Badge Animation */
+.hero-badge {
+  background: rgba(108, 99, 255, 0.1);
+  border: 1px solid rgba(108, 99, 255, 0.3);
+  backdrop-filter: blur(10px);
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(108, 99, 255, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(108, 99, 255, 0.4);
+  }
+}
+
+/* Floating Element Base */
+.float-item {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+.float-item:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.float-item:nth-child(2) {
+  animation-delay: 0.5s;
+}
+
+.float-item:nth-child(3) {
+  animation-delay: 1s;
+}
+
+/* Gradient Background Overlays */
+.gradient-glow-1 {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(108, 99, 255, 0.2) 0%, transparent 70%);
+  border-radius: 50%;
+  filter: blur(40px);
+  animation: glow-pulse 4s ease-in-out infinite;
+}
+
+.gradient-glow-2 {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(0, 212, 255, 0.15) 0%, transparent 70%);
+  border-radius: 50%;
+  filter: blur(40px);
+  animation: glow-pulse 4s ease-in-out infinite 1s;
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+}
+
+/* Text Glow Effects */
+.text-glow-primary {
+  color: var(--color-text-primary);
+  text-shadow: 0 0 20px rgba(108, 99, 255, 0.3);
+}
+
+.text-glow-accent {
+  color: var(--color-accent);
+  text-shadow: 0 0 20px rgba(0, 212, 255, 0.4);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 1024px) {
+  .hero-section {
+    min-height: 85vh;
+  }
+
+  .hero-pipeline-container {
+    padding: 8px;
+  }
+}
+
+@media (max-width: 768px) {
+  .hero-section {
+    min-height: 100vh;
+    padding: 20px 0;
+  }
+
+  .hero-grid {
+    background-size: 60px 60px;
+  }
+
+  .hero-headline {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+  }
+
+  .hero-pipeline-container {
+    padding: 16px;
+  }
+
+  .pipeline-stage {
+    min-width: 100px;
+  }
+
+  /* Hide connector arrows on mobile */
+  .connector-arrow {
+    display: none;
+  }
+
+  /* Stack stats vertically on mobile */
+  .hero-stats {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero-section {
+    min-height: auto;
+    padding-top: 100px;
+  }
+
+  .hero-headline {
+    font-size: 1.75rem;
+    letter-spacing: -0.01em;
+  }
+
+  .hero-subheading {
+    font-size: 1rem;
+  }
+
+  .hero-cta {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .hero-btn {
+    width: 100%;
+  }
+
+  .scroll-indicator {
+    display: none;
+  }
+}
+
+/* Dark Mode Support (already defaulted) */
+@media (prefers-color-scheme: dark) {
+  .hero-section {
+    background: linear-gradient(
+      135deg,
+      var(--color-bg-primary) 0%,
+      #0a0e1a 50%,
+      var(--color-bg-primary) 100%
+    );
+  }
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .hero-section,
+  .hero-grid,
+  .hero-headline,
+  .pipeline-stage,
+  .hero-stat,
+  .scroll-indicator,
+  .hero-badge,
+  .float-item,
+  .gradient-glow-1,
+  .gradient-glow-2,
+  .hero-btn {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .hero-section {
+    background: white;
+    min-height: auto;
+  }
+
+  .hero-grid,
+  .gradient-glow-1,
+  .gradient-glow-2,
+  .scroll-indicator {
+    display: none;
+  }
+
+  .hero-headline {
+    color: #000;
+    text-shadow: none;
+  }
+}
