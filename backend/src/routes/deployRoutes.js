@@ -8,10 +8,20 @@ const fs = require('fs');
 const git = simpleGit();
 
 router.post('/webhook', verifyGitHubWebhook, async (req, res) => {
+
+
+    // 1. Catch the initial GitHub Ping event
+    if (req.headers['x-github-event'] === 'ping') {
+        console.log('🏓 GitHub Ping received successfully!');
+        return res.status(200).send('Ping acknowledged');
+    }
+
+
     const { repository, ref } = req.body;
 
-    // Only trigger if push is to the 'main' branch
+    // 2. Only trigger if push is to the 'main' branch
     if (ref !== 'refs/heads/main') {
+        console.log('⚠️ Push was not to main branch. Ignoring.');
         return res.status(200).send('Not a push to main branch. Skipping.');
     }
 

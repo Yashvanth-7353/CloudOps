@@ -66,10 +66,6 @@ app.get('/auth/github/callback', async (req, res) => {
 });
 
 // 2. Webhook Listener (Phase 2)
-app.post('/api/webhook', (req, res) => {
-    res.json({ message: "Webhook received" });
-});
-
 app.use('/api', deployRoutes);
 
 // 3. Predictive Cost Engine (Phase 3 - Research Core)
