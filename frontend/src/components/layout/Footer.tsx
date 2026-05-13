@@ -3,7 +3,7 @@ import { Github, Mail, Sparkles } from 'lucide-react';
 const footerLinks = [
   { label: 'Docs', href: '/docs' },
   { label: 'Deployments', href: '/deployments' },
-  { label: 'Pricing', href: '#pricing' },
+  { label: 'Pricing', href: '/pricing' },
   { label: 'Support', href: 'mailto:support@cloudops.io' },
 ];
 

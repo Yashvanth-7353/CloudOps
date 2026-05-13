@@ -1,9 +1,28 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import CloudIllustration from '@/components/auth/CloudIllustration';
 import LoginCard from '@/components/auth/LoginCard';
 import { motion } from 'framer-motion';
+import { useAuth } from '@/app/providers/auth-provider';
 
 const LoginPage: React.FC = () => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { login } = useAuth();
+
+  useEffect(() => {
+    const token = searchParams.get('token');
+    if (token) {
+      login({ token }).then((success) => {
+        if (success) {
+          navigate('/dashboard');
+        } else {
+          localStorage.removeItem('cloudops_auth_token');
+        }
+      });
+    }
+  }, [searchParams, login, navigate]);
+
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-[#06070f] to-[#0b1020] text-white">
       <div className="max-w-full mx-auto min-h-screen">

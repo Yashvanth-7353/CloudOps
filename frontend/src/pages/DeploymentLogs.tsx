@@ -5,15 +5,55 @@ import TerminalStream from '@/components/deployments/TerminalStream';
 import DeploymentTimeline from '@/components/deployments/DeploymentTimeline';
 import DeployControls from '@/components/deployments/DeployControls';
 import { DashboardLayout } from '@/components/layout';
+import { useSearchParams } from 'react-router-dom';
 
 const STEPS = ['Cloning Repository', 'Installing Dependencies', 'Building Docker Image', 'Pushing to AWS', 'Deployment Successful'];
+const DEPLOYED_PROJECTS_KEY = 'cloudops_deployed_projects';
+
+type DeployedProject = {
+  id: string;
+  name: string;
+  fullName: string;
+  liveUrl?: string;
+  logDetails?: string[];
+  deploymentStatus?: string;
+};
 
 export default function DeploymentLogsPage() {
+  const [searchParams] = useSearchParams();
   const [currentStep, setCurrentStep] = useState(0);
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [liveUrl, setLiveUrl] = useState('https://preview.cloudops.app/your-app');
+  const [selectedProject, setSelectedProject] = useState<DeployedProject | null>(null);
+
+  useEffect(() => {
+    const repoQuery = searchParams.get('repo');
+
+    try {
+      const raw = localStorage.getItem(DEPLOYED_PROJECTS_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const projects = Array.isArray(parsed) ? parsed : [];
+      const project = projects.find((item: DeployedProject) => item.fullName === repoQuery) || null;
+      setSelectedProject(project);
+      if (project?.liveUrl) {
+        setLiveUrl(project.liveUrl);
+      }
+      if (project?.logDetails?.length) {
+        setLogs(project.logDetails);
+        setCurrentStep(STEPS.length - 1);
+        setProgress(100);
+        setRunning(false);
+      } else {
+        setLogs([]);
+        setCurrentStep(0);
+        setProgress(0);
+      }
+    } catch {
+      setSelectedProject(null);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     let timer: any;
@@ -39,7 +79,7 @@ export default function DeploymentLogsPage() {
   useEffect(() => {
     // add logs based on currentStep
     if (!running) return;
-    const lines = sampleLogsForStep(currentStep);
+    const lines = sampleLogsForStep(currentStep, selectedProject?.fullName || 'repo');
     let idx = 0;
     const id = setInterval(() => {
       if (idx >= lines.length) { clearInterval(id); return; }
@@ -47,7 +87,7 @@ export default function DeploymentLogsPage() {
       idx += 1;
     }, 450);
     return () => clearInterval(id);
-  }, [currentStep, running]);
+  }, [currentStep, running, selectedProject]);
 
   useEffect(() => {
     // finish when reach final step
@@ -76,7 +116,9 @@ export default function DeploymentLogsPage() {
         <div className="max-w-6xl mx-auto">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
             <h1 className="text-3xl font-bold text-white">Deployment Logs</h1>
-            <p className="text-white/60">Real-time deployment activity and terminal output.</p>
+            <p className="text-white/60">
+              {selectedProject ? `Real-time logs for ${selectedProject.fullName}.` : 'Select a deployed project from Sidebar > Logs to see project logs.'}
+            </p>
           </motion.div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -113,7 +155,7 @@ export default function DeploymentLogsPage() {
 
               <div className="backdrop-blur-md bg-[rgba(6,10,20,0.5)] border border-white/6 rounded-xl p-4">
                 <h3 className="text-lg font-semibold text-white mb-2">Status</h3>
-                <div className="text-sm text-white/70 mb-2">{running ? 'Running' : currentStep >= STEPS.length -1 ? 'Completed' : 'Idle'}</div>
+                <div className="text-sm text-white/70 mb-2">{running ? 'Running' : selectedProject?.deploymentStatus || (currentStep >= STEPS.length -1 ? 'Completed' : 'Idle')}</div>
                 <div className="text-xs text-white/60">Last updated: {new Date().toLocaleString()}</div>
               </div>
             </div>
@@ -124,11 +166,11 @@ export default function DeploymentLogsPage() {
   );
 }
 
-function sampleLogsForStep(step: number) {
+function sampleLogsForStep(step: number, repoName: string) {
   switch (step) {
     case 0:
       return [
-        `Cloning into 'repo'...`,
+        `Cloning into '${repoName}'...`,
         `remote: Enumerating objects: 54, done.`,
         `Receiving objects: 100% (54/54), 12.34 KiB | 1.23 MiB/s, done.`,
       ];

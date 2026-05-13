@@ -1,9 +1,23 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Search, Bell } from 'lucide-react';
+import { useAuth } from '@/app/providers/auth-provider';
 
 const TopNavbar: React.FC<{ onToggleMobileSidebar?: () => void }> = ({ onToggleMobileSidebar }) => {
   const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  const { logout, user } = useAuth();
+  const userInitial =
+    user?.username?.[0]?.toUpperCase() ||
+    user?.name?.[0]?.toUpperCase() ||
+    user?.login?.[0]?.toUpperCase() ||
+    'U';
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   return (
     <header className="w-full border-b border-white/6 bg-[rgba(10,14,24,0.4)] backdrop-blur-md">
@@ -36,8 +50,8 @@ const TopNavbar: React.FC<{ onToggleMobileSidebar?: () => void }> = ({ onToggleM
 
           <div className="relative">
             <button onClick={() => setOpen(!open)} className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-sm font-semibold">U</div>
-              <div className="hidden md:block text-sm text-white/90">User</div>
+              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-sm font-semibold">{userInitial}</div>
+              <div className="hidden md:block text-sm text-white/90">{user?.username || user?.name || 'User'}</div>
             </button>
 
             {open && (
@@ -56,7 +70,13 @@ const TopNavbar: React.FC<{ onToggleMobileSidebar?: () => void }> = ({ onToggleM
                     <a href="/settings" className="block px-3 py-2 text-sm hover:bg-white/3">Settings</a>
                   </li>
                   <li>
-                    <a href="/logout" className="block px-3 py-2 text-sm text-rose-400 hover:bg-white/3">Sign out</a>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="w-full text-left px-3 py-2 text-sm text-rose-400 hover:bg-white/3"
+                    >
+                      Sign out
+                    </button>
                   </li>
                 </ul>
               </motion.div>

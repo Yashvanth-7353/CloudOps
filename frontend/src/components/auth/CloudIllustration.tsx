@@ -1,15 +1,22 @@
 import React from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 
 // A compact animated cloud deployment illustration using SVG + Framer Motion
 const CloudIllustration: React.FC<{ className?: string }> = ({ className = '' }) => {
+  const [hidden, setHidden] = useState(false);
+
   const float = {
     animate: { y: [0, -12, 0], rotate: [0, 1, 0] },
     transition: { duration: 6, ease: 'easeInOut', repeat: Infinity },
   };
 
   return (
-    <div className={`w-full h-full flex items-center justify-center ${className}`}>
+    <div
+      className={`w-full h-full flex items-center justify-center transition-opacity duration-200 ${hidden ? 'opacity-0 pointer-events-none' : 'opacity-100'} ${className}`}
+      onMouseEnter={() => setHidden(true)}
+      onMouseLeave={() => setHidden(false)}
+    >
       <motion.svg
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 800 600"
@@ -52,7 +59,7 @@ const CloudIllustration: React.FC<{ className?: string }> = ({ className = '' })
         </g>
 
         {/* Stylized pipeline: repo -> build -> deploy -> live */}
-        <g transform="translate(80,120)">
+        <g transform="translate(60,120)">
           {/* Repo */}
           <motion.g whileHover={{ scale: 1.03 }} transition={{ type: 'spring', stiffness: 250 }}>
             <rect x="0" y="40" rx="12" ry="12" width="120" height="70" fill="#0b1220" stroke="#6C63FF" strokeWidth="2" />
@@ -79,7 +86,11 @@ const CloudIllustration: React.FC<{ className?: string }> = ({ className = '' })
           <motion.path d="M580 75 L670 75" stroke="#ffffff66" strokeWidth="2" strokeLinecap="round" />
 
           {/* Live */}
-          <motion.g transform="translate(660,0)" whileHover={{ scale: 1.03 }} transition={{ type: 'spring', stiffness: 250 }}>
+          <motion.g
+            transform="translate(660,0)"
+            whileHover={{ scale: 1.03, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 250 }}
+          >
             <rect x="0" y="40" rx="12" ry="12" width="120" height="70" fill="#0b1220" stroke="#7efc7e" strokeWidth="2" />
             <text x="60" y="85" textAnchor="middle" fontSize="12" fill="#fff">Live Site</text>
           </motion.g>

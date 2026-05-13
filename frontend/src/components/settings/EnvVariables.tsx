@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Pencil, Trash2, Braces } from 'lucide-react';
+import { SETTINGS_KEYS, readStoredValue, writeStoredValue } from './settings-storage';
 
 type EnvVar = { id: number; key: string; value: string };
 
@@ -11,10 +12,15 @@ const initialVars: EnvVar[] = [
 ];
 
 const EnvVariables: React.FC = () => {
-  const [items, setItems] = useState<EnvVar[]>(initialVars);
+  const [items, setItems] = useState<EnvVar[]>(() => readStoredValue(SETTINGS_KEYS.ENV_VARS, initialVars));
   const [editingId, setEditingId] = useState<number | null>(null);
   const [key, setKey] = useState('');
   const [value, setValue] = useState('');
+
+  const persist = (next: EnvVar[]) => {
+    setItems(next);
+    writeStoredValue(SETTINGS_KEYS.ENV_VARS, next);
+  };
 
   const resetForm = () => {
     setEditingId(null);
@@ -32,14 +38,19 @@ const EnvVariables: React.FC = () => {
     if (!key.trim()) return;
 
     if (editingId) {
-      setItems((prev) => prev.map((item) => (item.id === editingId ? { ...item, key, value } : item)));
+      persist(items.map((item) => (item.id === editingId ? { ...item, key, value } : item)));
     } else {
-      setItems((prev) => [...prev, { id: Date.now(), key, value }]);
+      persist([...items, { id: Date.now(), key, value }]);
     }
     resetForm();
   };
 
-  const remove = (id: number) => setItems((prev) => prev.filter((item) => item.id !== id));
+  const remove = (id: number) => persist(items.filter((item) => item.id !== id));
+
+  const clearAll = () => {
+    persist([]);
+    resetForm();
+  };
 
   return (
     <motion.section whileHover={{ y: -4 }} className="rounded-2xl border border-white/8 bg-[rgba(10,14,24,0.62)] backdrop-blur-md p-5 shadow-[0_20px_60px_rgba(2,6,23,0.35)] lg:col-span-2">
@@ -62,6 +73,9 @@ const EnvVariables: React.FC = () => {
           </button>
           <button type="button" onClick={resetForm} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80">
             Clear
+          </button>
+          <button type="button" onClick={clearAll} className="rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+            Reset all
           </button>
         </div>
       </div>

@@ -4,10 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, X, Github, ChevronDown, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useToast } from '@/components/ui/ToastProvider';
+import { useAuth } from '@/app/providers/auth-provider';
 import { COLORS } from '@/lib/constants';
 import Logo from './Logo';
 import './Navbar.css';
@@ -22,7 +24,7 @@ interface NavLink {
 const navLinks: NavLink[] = [
   { label: 'Features', href: '#features' },
   { label: 'Deployments', href: '/deployments' },
-  { label: 'Pricing', href: '#pricing' },
+  { label: 'Pricing', href: '/pricing' },
   { label: 'Docs', href: '/docs' },
 ];
 
@@ -30,8 +32,31 @@ const Navbar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { notify } = useToast();
+  const { isAuthenticated, logout, user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const userName = user?.username || user?.name || user?.login || 'User';
+  const userInitial = userName?.[0]?.toUpperCase() || 'U';
+
+  const handleLogout = () => {
+    setUserMenuOpen(false);
+    logout();
+    navigate('/login');
+  };
+
+  const handleProfile = () => {
+    setUserMenuOpen(false);
+    navigate('/settings?tab=profile');
+  };
+
+  const handleSettings = () => {
+    setUserMenuOpen(false);
+    navigate('/settings?tab=settings');
+  };
 
   const handleThemeToggle = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
@@ -57,6 +82,34 @@ const Navbar: React.FC = () => {
   const handleNavClick = () => {
     setIsOpen(false);
     setActiveDropdown(null);
+  };
+
+  // Close user menu when clicking outside
+  React.useEffect(() => {
+    if (!userMenuOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[aria-haspopup="menu"]') && !target.closest('[role="menu"]')) {
+        setUserMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [userMenuOpen]);
+
+  const isActiveNavLink = (href: string) => {
+    if (href.startsWith('/')) {
+      if (href === '/') return location.pathname === '/';
+      return location.pathname === href;
+    }
+
+    if (href.startsWith('#')) {
+      return location.pathname === '/' && location.hash === href;
+    }
+
+    return false;
   };
 
   return (
@@ -95,7 +148,7 @@ const Navbar: React.FC = () => {
                 >
                   <a
                     href={link.href}
-                    className="nav-link"
+                    className={`nav-link ${isActiveNavLink(link.href) ? 'nav-link-active' : ''}`}
                     onClick={handleNavClick}
                   >
                     <span>{link.label}</span>
@@ -105,11 +158,13 @@ const Navbar: React.FC = () => {
                   </a>
 
                   {/* Animated underline */}
-                  <motion.div
-                    className="nav-underline"
-                    layoutId={`underline-${link.label}`}
-                    initial={false}
-                  />
+                  {isActiveNavLink(link.href) && (
+                    <motion.div
+                      className="nav-underline nav-underline-active"
+                      layoutId="active-navbar-underline"
+                      initial={false}
+                    />
+                  )}
                 </motion.div>
               ))}
             </div>
@@ -127,17 +182,86 @@ const Navbar: React.FC = () => {
                 {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
               </motion.button>
 
-              {/* GitHub Login Button (Desktop) */}
-              <motion.a
-                href="/auth/github"
-                className="btn btn-secondary gap-md hidden md:flex"
-                aria-label="Sign in with GitHub"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Github size={18} />
-                <span>Sign in</span>
-              </motion.a>
+              {/* Auth action buttons */}
+              {isAuthenticated ? (
+                <div className="hidden md:flex items-center gap-3 relative">
+                  <button
+                    type="button"
+                    onClick={() => setUserMenuOpen((value) => !value)}
+                    className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/90 hover:bg-white/10 transition"
+                    aria-haspopup="menu"
+                    aria-expanded={userMenuOpen}
+                    aria-label="Open user menu"
+                  >
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-tr from-primary to-accent text-xs font-semibold">
+                      {userInitial}
+                    </span>
+                    {userName}
+                    <ChevronDown className={`w-4 h-4 transition ${userMenuOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  <AnimatePresence>
+                    {userMenuOpen && (
+                      <motion.div
+                        role="menu"
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.18 }}
+                        className="absolute right-0 top-[calc(100%+10px)] w-44 bg-[rgba(12,16,26,0.9)] border border-white/10 backdrop-blur-md rounded-lg shadow-lg overflow-hidden z-[9999]"
+                        style={{ pointerEvents: 'auto' }}
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleProfile();
+                          }}
+                          className="w-full text-left px-4 py-3 text-sm text-white/90 hover:bg-white/10 transition-colors cursor-pointer"
+                        >
+                          Profile
+                        </button>
+                        <div className="border-t border-white/5" />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSettings();
+                          }}
+                          className="w-full text-left px-4 py-3 text-sm text-white/90 hover:bg-white/10 transition-colors cursor-pointer"
+                        >
+                          Settings
+                        </button>
+                        <div className="border-t border-white/5" />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleLogout();
+                          }}
+                          className="w-full text-left px-4 py-3 text-sm text-rose-300 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                        >
+                          Sign out
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ) : (
+                <motion.a
+                  href="http://localhost:5000/auth/github"
+                  className="btn btn-secondary gap-md hidden md:flex"
+                  aria-label="Sign in with GitHub"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Github size={18} />
+                  <span>Sign in</span>
+                </motion.a>
+              )}
 
               {/* Mobile Menu Toggle */}
               <motion.button
@@ -205,18 +329,35 @@ const Navbar: React.FC = () => {
               ))}
 
               {/* Mobile GitHub Button */}
-              <motion.a
-                href="/auth/github"
-                className="mobile-github-btn"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ delay: navLinks.length * 0.05, duration: 0.2 }}
-                onClick={handleNavClick}
-              >
-                <Github size={18} />
-                <span>Sign in with GitHub</span>
-              </motion.a>
+              {isAuthenticated ? (
+                <motion.button
+                  type="button"
+                  className="mobile-github-btn"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ delay: navLinks.length * 0.05, duration: 0.2 }}
+                  onClick={() => {
+                    handleNavClick();
+                    handleLogout();
+                  }}
+                >
+                  <span>Sign out</span>
+                </motion.button>
+              ) : (
+                <motion.a
+                  href="http://localhost:5000/auth/github"
+                  className="mobile-github-btn"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ delay: navLinks.length * 0.05, duration: 0.2 }}
+                  onClick={handleNavClick}
+                >
+                  <Github size={18} />
+                  <span>Sign in with GitHub</span>
+                </motion.a>
+              )}
             </div>
           </motion.div>
         )}

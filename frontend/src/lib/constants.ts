@@ -8,15 +8,17 @@ export const APP_VERSION = '1.0.0';
 export const APP_DESCRIPTION = 'Automated deployment platform with predictive cost engine';
 
 // API Configuration
-export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const rawApiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const normalizeApiBaseUrl = (url: string) => url.replace(/\/api\/?$/, '');
+export const API_BASE_URL = normalizeApiBaseUrl(rawApiBaseUrl);
 export const API_TIMEOUT = 30000;
 
 // Socket Configuration
-export const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:5000';
+export const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 export const SOCKET_TIMEOUT = 5000;
 
 // Authentication
-export const GITHUB_CLIENT_ID = process.env.REACT_APP_GITHUB_CLIENT_ID || '';
+export const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID || '';
 export const AUTH_TOKEN_KEY = 'cloudops_auth_token';
 export const AUTH_REFRESH_TOKEN_KEY = 'cloudops_refresh_token';
 export const USER_KEY = 'cloudops_user';

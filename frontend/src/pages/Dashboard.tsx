@@ -1,5 +1,5 @@
-import React, { Suspense } from 'react';
-import { Layout } from '@/components/layout';
+import React, { Suspense, useEffect, useState } from 'react';
+import { DashboardLayout } from '@/components/layout';
 import { motion } from 'framer-motion';
 import { Activity, Zap, AlertCircle, TrendingUp } from 'lucide-react';
 
@@ -20,7 +20,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <Layout showNavbar={true}>
+    <DashboardLayout>
       <main className="space-y-10">
         <div className="max-w-7xl mx-auto">
           {/* Welcome Header */}
@@ -71,9 +71,9 @@ export default function DashboardPage() {
             transition={{ duration: 0.6, delay: 0.4 }}
             className=""
           >
-            <h2 className="text-2xl font-bold text-text-primary mb-4">Repositories</h2>
+            <h2 className="text-2xl font-bold text-text-primary mb-4">GitHub repositories</h2>
             <div className="mb-6">
-              <p className="text-text-secondary">Manage connected GitHub repositories and deploy with one click.</p>
+              <p className="text-text-secondary">Connect a GitHub repo to load live repository cards and manage them from CloudOps.</p>
             </div>
 
             <div>
@@ -85,6 +85,6 @@ export default function DashboardPage() {
           </motion.div>
         </div>
       </main>
-    </Layout>
+    </DashboardLayout>
   );
 }

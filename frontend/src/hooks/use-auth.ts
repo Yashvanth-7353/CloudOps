@@ -14,7 +14,7 @@ export const useAuthHook = () => {
     try {
       const response = await authService.githubLogin(code, state);
       const { token, user } = response.data;
-      localStorage.setItem('auth_token', token);
+      localStorage.setItem('cloudops_auth_token', token);
       await auth.login({ token, user });
     } catch (error) {
       throw error;
@@ -23,7 +23,7 @@ export const useAuthHook = () => {
 
   const logout = useCallback(() => {
     auth.logout();
-    localStorage.removeItem('auth_token');
+    localStorage.removeItem('cloudops_auth_token');
   }, [auth]);
 
   return {

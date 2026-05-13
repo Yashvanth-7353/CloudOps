@@ -1,8 +1,12 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Github } from 'lucide-react';
+import { useAuth } from '@/app/providers/auth-provider';
 
 const LoginCard: React.FC = () => {
+  const { isAuthenticated, user } = useAuth();
+  const userName = user?.username || user?.name || user?.login || user?.email || 'GitHub User';
+
   return (
     <motion.div
       className="w-full max-w-md mx-auto p-8 rounded-2xl relative bg-[rgba(19,26,42,0.6)] backdrop-blur-md border border-white/10 shadow-xl"
@@ -16,14 +20,21 @@ const LoginCard: React.FC = () => {
         <h3 className="text-2xl font-bold text-white">Welcome back</h3>
         <p className="text-sm text-white/70">Sign in to manage your deployments and monitoring.</p>
 
-        <button
-          className="mt-4 flex items-center justify-center gap-3 w-full py-3 rounded-lg bg-gradient-to-r from-[#0f1724]/60 to-[#0b1220]/40 border border-white/10 hover:from-[#0b1220]/80 transition-all duration-200"
-          onClick={() => window.location.assign('/api/auth/github')}
-          aria-label="Sign in with GitHub"
-        >
-          <Github className="w-5 h-5 text-white" />
-          <span className="text-sm font-semibold text-white">Continue with GitHub</span>
-        </button>
+        {isAuthenticated ? (
+          <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-4 text-white">
+            <div className="text-xs text-white/60">Signed in as</div>
+            <div className="mt-2 text-lg font-semibold">{userName}</div>
+          </div>
+        ) : (
+          <button
+            className="mt-4 flex items-center justify-center gap-3 w-full py-3 rounded-lg bg-gradient-to-r from-[#0f1724]/60 to-[#0b1220]/40 border border-white/10 hover:from-[#0b1220]/80 transition-all duration-200"
+            onClick={() => window.location.assign('http://localhost:5000/auth/github')}
+            aria-label="Sign in with GitHub"
+          >
+            <Github className="w-5 h-5 text-white" />
+            <span className="text-sm font-semibold text-white">Continue with GitHub</span>
+          </button>
+        )}
 
         <div className="pt-2">
           <div className="text-xs text-white/60">

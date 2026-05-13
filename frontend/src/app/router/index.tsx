@@ -15,8 +15,10 @@ const LoginPage = lazy(() => import('@/pages/Login'));
 const DashboardPage = lazy(() => import('@/pages/Dashboard'));
 const AnalyticsPage = lazy(() => import('@/pages/Analytics'));
 const BillingPage = lazy(() => import('@/pages/Billing'));
+const PricingPage = lazy(() => import('@/pages/Pricing'));
 const SettingsPage = lazy(() => import('@/pages/Settings'));
 const DeploymentLogsPage = lazy(() => import('@/pages/DeploymentLogs'));
+const LiveProjectsPage = lazy(() => import('@/pages/LiveProjects'));
 const DocsPage = lazy(() => import('@/pages/Docs'));
 
 const pageVariants = {
@@ -63,6 +65,7 @@ function Routes() {
           <RouterRoutes location={location} key={location.pathname}>
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
 
             <Route element={<ProtectedRoutes />}>
               <Route path="/dashboard" element={<DashboardPage />} />
@@ -71,6 +74,7 @@ function Routes() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/deployments" element={<DeploymentLogsPage />} />
               <Route path="/deployment-logs" element={<DeploymentLogsPage />} />
+              <Route path="/live-projects" element={<LiveProjectsPage />} />
             </Route>
 
             <Route path="/docs" element={<DocsPage />} />

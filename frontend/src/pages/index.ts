@@ -9,5 +9,6 @@ export { default as NavbarShowcase } from './NavbarShowcase';
 export { default as Login } from './Login';
 export { default as Analytics } from './Analytics';
 export { default as Billing } from './Billing';
+export { default as Pricing } from './Pricing';
 export { default as Settings } from './Settings';
 

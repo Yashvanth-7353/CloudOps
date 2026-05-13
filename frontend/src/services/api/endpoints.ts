@@ -14,6 +14,11 @@ export const ENDPOINTS = {
     VERIFY: '/api/auth/verify',
   },
 
+  // GitHub
+  GITHUB: {
+    REPOSITORIES: '/api/github/repos',
+  },
+
   // Users
   USERS: {
     ME: '/api/users/me',

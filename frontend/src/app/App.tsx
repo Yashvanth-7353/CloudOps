@@ -6,6 +6,7 @@ import AppBackground from '@/components/layout/AppBackground';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { ToastProvider } from '@/components/ui/ToastProvider';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import { AuthProvider } from '@/app/providers/auth-provider';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -23,17 +24,19 @@ function App() {
       <ToastProvider>
         <ErrorBoundary>
           <QueryClientProvider client={queryClient}>
-            <Router>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.5 }}
-                className="relative min-h-screen overflow-hidden bg-background"
-              >
-                <AppBackground />
-                <Routes />
-              </motion.div>
-            </Router>
+            <AuthProvider>
+              <Router>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.5 }}
+                  className="relative min-h-screen overflow-hidden bg-background"
+                >
+                  <AppBackground />
+                  <Routes />
+                </motion.div>
+              </Router>
+            </AuthProvider>
           </QueryClientProvider>
         </ErrorBoundary>
       </ToastProvider>

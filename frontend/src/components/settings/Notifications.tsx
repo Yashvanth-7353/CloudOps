@@ -1,6 +1,19 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { BellRing, Mail, MessageSquare } from 'lucide-react';
+import { SETTINGS_KEYS, readStoredValue, writeStoredValue } from './settings-storage';
+
+type NotificationSettingsValue = {
+  email: boolean;
+  slack: boolean;
+  browser: boolean;
+};
+
+const DEFAULT_NOTIFICATIONS: NotificationSettingsValue = {
+  email: true,
+  slack: true,
+  browser: false,
+};
 
 const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) => (
   <button
@@ -14,9 +27,17 @@ const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 );
 
 const Notifications: React.FC = () => {
-  const [email, setEmail] = useState(true);
-  const [slack, setSlack] = useState(true);
-  const [browser, setBrowser] = useState(false);
+  const stored = readStoredValue(SETTINGS_KEYS.NOTIFICATIONS, DEFAULT_NOTIFICATIONS);
+  const [email, setEmail] = useState(stored.email);
+  const [slack, setSlack] = useState(stored.slack);
+  const [browser, setBrowser] = useState(stored.browser);
+
+  const persist = (next: NotificationSettingsValue) => {
+    setEmail(next.email);
+    setSlack(next.slack);
+    setBrowser(next.browser);
+    writeStoredValue(SETTINGS_KEYS.NOTIFICATIONS, next);
+  };
 
   return (
     <motion.section whileHover={{ y: -4 }} className="rounded-2xl border border-white/8 bg-[rgba(10,14,24,0.62)] backdrop-blur-md p-5 shadow-[0_20px_60px_rgba(2,6,23,0.35)]">
@@ -32,9 +53,9 @@ const Notifications: React.FC = () => {
 
       <div className="space-y-3">
         {[
-          { label: 'Email notifications', icon: <Mail className="h-4 w-4" />, checked: email, onChange: setEmail },
-          { label: 'Slack alerts', icon: <MessageSquare className="h-4 w-4" />, checked: slack, onChange: setSlack },
-          { label: 'Browser notifications', icon: <BellRing className="h-4 w-4" />, checked: browser, onChange: setBrowser },
+          { label: 'Email notifications', icon: <Mail className="h-4 w-4" />, checked: email, onChange: (value: boolean) => persist({ email: value, slack, browser }) },
+          { label: 'Slack alerts', icon: <MessageSquare className="h-4 w-4" />, checked: slack, onChange: (value: boolean) => persist({ email, slack: value, browser }) },
+          { label: 'Browser notifications', icon: <BellRing className="h-4 w-4" />, checked: browser, onChange: (value: boolean) => persist({ email, slack, browser: value }) },
         ].map((item) => (
           <div key={item.label} className="flex items-center justify-between rounded-xl border border-white/8 bg-white/5 px-4 py-3">
             <div className="flex items-center gap-3 text-sm text-white/85">

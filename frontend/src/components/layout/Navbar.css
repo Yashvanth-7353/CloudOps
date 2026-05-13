@@ -97,6 +97,10 @@
   }
 }
 
+.nav-link-active {
+  color: var(--color-text-primary);
+}
+
 /* Animated Underline Effect */
 .nav-underline {
   @apply absolute bottom-0 left-0 right-0;
@@ -108,7 +112,7 @@
   transform-origin: left;
 }
 
-.nav-item-wrapper:hover .nav-underline {
+.nav-underline-active {
   opacity: 1;
 }
 
