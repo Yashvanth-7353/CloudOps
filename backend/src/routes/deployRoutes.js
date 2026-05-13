@@ -1,64 +1,30 @@
 const express = require('express');
 const router = express.Router();
-const verifyGitHubWebhook = require('../middleware/webhookValidator');
-const simpleGit = require('simple-git');
-const path = require('path');
-const fs = require('fs');
 
-const git = simpleGit();
+// This is the exact URL GitHub is knocking on: /api/deploy/webhook
+router.post('/deploy/webhook', (req, res) => {
+    // GitHub tells us what kind of event just happened in the headers
+    const event = req.headers['x-github-event'];
 
-const { buildImage } = require('../services/dockerService');
+    console.log(`\n🔔 GitHub Webhook Triggered! Event type: ${event}`);
 
-router.post('/webhook', verifyGitHubWebhook, async (req, res) => {
-
-
-    // 1. Catch the initial GitHub Ping event
-    if (req.headers['x-github-event'] === 'ping') {
-        console.log('🏓 GitHub Ping received successfully!');
-        return res.status(200).send('Ping acknowledged');
+    // 1. Handle the initial "Ping" test when the webhook is first created
+    if (event === 'ping') {
+        console.log('✅ GitHub successfully pinged our server!');
+        return res.status(200).json({ message: 'Pong! CloudOps webhook is alive and well.' });
     }
 
-
-    const { repository, ref } = req.body;
-
-    // 2. Only trigger if push is to the 'main' branch
-    if (ref !== 'refs/heads/main') {
-        console.log('⚠️ Push was not to main branch. Ignoring.');
-        return res.status(200).send('Not a push to main branch. Skipping.');
-    }
-
-    const repoUrl = repository.clone_url;
-    const repoName = repository.name;
-    const downloadPath = path.join(__dirname, '../../temp', repoName);
-
-    // 🚀 THE FIX: Reply to GitHub IMMEDIATELY (Status 202 means "Accepted for processing")
-    res.status(202).send('Webhook received. Build pipeline started in the background.');
-
-    console.log(`📦 New push detected! Cloning ${repoName}...`);
-
-    try {
-        // Clear previous clone if it exists
-        if (fs.existsSync(downloadPath)) {
-            fs.rmSync(downloadPath, { recursive: true, force: true });
-        }
-
-        // Clone the repository
-        await git.clone(repoUrl, downloadPath);
-        console.log(`✅ ${repoName} cloned successfully to ${downloadPath}`);
-
-        // NEW: Trigger Docker Build
-        const buildResult = await buildImage(repoName, downloadPath);
+    // 2. Handle actual code pushes (We will add the Docker build logic here later)
+    if (event === 'push') {
+        const repoName = req.body.repository?.name;
+        const pusherName = req.body.pusher?.name;
+        console.log(`🚀 Code pushed to ${repoName} by ${pusherName}! Ready to deploy...`);
         
-        console.log(`🚀 Image ${buildResult.imageName} is ready for deployment!`);
-
-        // (You can't do res.send() here anymore because you already sent it above)
-        // Later, this is where you will update your database so your React UI 
-        // changes from "Building..." to "Live!"
-    } catch (err) {
-        console.error('❌ Pipeline failed:', err);
-        res.status(500).send('Pipeline failed during build.');
+        return res.status(200).json({ message: 'Push received. Deployment queued.' });
     }
 
+    // Always return a 200 status so GitHub knows we received it, even if we don't care about the event
+    return res.status(200).json({ message: 'Event acknowledged but ignored.' });
 });
 
 module.exports = router;

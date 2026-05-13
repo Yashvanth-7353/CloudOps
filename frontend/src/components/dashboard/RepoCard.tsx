@@ -1,6 +1,7 @@
-import React from 'react';
-import { motion } from 'framer-motion';
-import { ExternalLink, Github, Lock, CalendarClock, CheckCircle2, PlugZap, Rocket } from 'lucide-react';
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ExternalLink, Github, Lock, CalendarClock, CheckCircle2, PlugZap, Rocket, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { githubService } from '../../services/github-service'; 
 
 export type Repo = {
   id: string;
@@ -22,11 +23,45 @@ const RepoCard: React.FC<{
   onRemove?: (repo: Repo) => void;
   onDeploy?: (repo: Repo) => void;
 }> = ({ repo, selected = false, onConnect, onRemove, onDeploy }) => {
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
+  const handleConnect = async () => {
+    setIsConnecting(true);
+    setFeedback(null); // Clear old messages
+    
+    try {
+      const repositoryOwner = repo.fullName.split('/')[0];
+
+      await githubService.connectRepository({
+        repositoryName: repo.name,
+        repositoryOwner: repositoryOwner,
+        repositoryUrl: repo.htmlUrl, 
+        isPrivate: repo.isPrivate,
+        description: repo.description || undefined,
+      });
+      
+      // Show success message!
+      setFeedback({ type: 'success', message: 'Webhook created successfully!' });
+      
+      // Wait 1.5 seconds so the user can read the success message, then move the card
+      setTimeout(() => {
+        onConnect?.(repo);
+      }, 1500);
+      
+    } catch (error: any) {
+      console.error(error);
+      setFeedback({ type: 'error', message: error.message || 'Failed to connect repo.' });
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
   return (
     <motion.article
       layout
       whileHover={{ scale: 1.02, boxShadow: '0 8px 30px rgba(2,6,23,0.6)' }}
-      className="relative rounded-xl p-4 bg-[rgba(12,16,26,0.6)] border border-white/6 backdrop-blur-md hover:border-primary/40 transition-colors"
+      className="relative flex flex-col rounded-xl p-4 bg-[rgba(12,16,26,0.6)] border border-white/6 backdrop-blur-md hover:border-primary/40 transition-colors"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -54,18 +89,24 @@ const RepoCard: React.FC<{
         {repo.description || 'No description provided by the repository owner.'}
       </p>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-white/60">
-        <div className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-3 py-1">
-          <PlugZap className="h-3.5 w-3.5 text-cyan-300" />
-          {repo.language || 'Repository'}
-        </div>
-        <div className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-3 py-1">
-          <CalendarClock className="h-3.5 w-3.5 text-cyan-300" />
-          Updated {new Date(repo.updatedAt).toLocaleDateString()}
-        </div>
-      </div>
+      {/* --- FEEDBACK MESSAGE AREA --- */}
+      <AnimatePresence>
+        {feedback && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className={`mt-3 flex items-center gap-2 text-xs rounded-md p-2 ${
+              feedback.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'
+            }`}
+          >
+            {feedback.type === 'error' ? <AlertCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+            {feedback.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-auto pt-4 flex flex-wrap items-center justify-between gap-3">
         <a
           href={repo.htmlUrl}
           target="_blank"
@@ -99,10 +140,22 @@ const RepoCard: React.FC<{
           ) : (
             <button
               type="button"
-              onClick={() => onConnect?.(repo)}
-              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/20 transition"
+              onClick={handleConnect}
+              disabled={isConnecting}
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                isConnecting 
+                  ? 'bg-cyan-500/10 text-cyan-100/50 cursor-not-allowed' 
+                  : 'bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/20'
+              }`}
             >
-              Connect repo
+              {isConnecting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Connecting...
+                </>
+              ) : (
+                'Connect repo'
+              )}
             </button>
           )}
         </div>

@@ -1,6 +1,9 @@
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose'); // <-- Added Mongoose
 require('dotenv').config();
+
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -15,6 +18,16 @@ const deploymentRoutes = require('./src/routes/deploymentRoutes');
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// --- MONGODB CONNECTION ---
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log('✅ MongoDB connected successfully!'))
+    .catch((err) => {
+        console.error('❌ MongoDB connection error:');
+        console.error(err);
+        process.exit(1); // Exit if the database doesn't connect
+    });
+// --------------------------
 
 app.use('/auth', authRoutes);
 app.use('/api/auth', authRoutes);
