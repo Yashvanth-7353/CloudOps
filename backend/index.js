@@ -10,6 +10,7 @@ const githubRoutes = require('./src/routes/githubRoutes');
 const apiRoutes = require('./src/routes/apiRoutes');
 const userRoutes = require('./src/routes/userRoutes');
 const deployRoutes = require('./src/routes/deployRoutes');
+const deploymentRoutes = require('./src/routes/deploymentRoutes');
 
 // Middleware
 app.use(cors());
@@ -21,6 +22,7 @@ app.use('/api/github', githubRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api', apiRoutes);
 app.use('/api', deployRoutes);
+app.use('/api/deploy', deploymentRoutes);
 
 // Start Server
 app.listen(PORT, () => {

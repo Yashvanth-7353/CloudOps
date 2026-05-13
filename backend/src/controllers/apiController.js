@@ -7,26 +7,33 @@ const healthCheck = (req, res) => {
 };
 
 const listDeployments = (req, res) => {
-    res.json({ deployments: [] });
+    res.status(501).json({
+        error: 'Deprecated endpoint. Use /api/deploy routes for real deployment data.',
+    });
 };
 
 const createDeployment = (req, res) => {
-    res.status(201).json({
-        message: 'Deployment creation endpoint',
-        data: { id: 'deployment_' + Date.now() },
+    res.status(501).json({
+        error: 'Deprecated endpoint. Use POST /api/deploy/start for real deployment creation.',
     });
 };
 
 const getDeploymentById = (req, res) => {
-    res.json({ deployment: { id: req.params.id } });
+    res.status(501).json({
+        error: 'Deprecated endpoint. Use GET /api/deploy/:deploymentId for real deployment status.',
+    });
 };
 
 const getDeploymentLogs = (req, res) => {
-    res.json({ logs: [] });
+    res.status(501).json({
+        error: 'Deprecated endpoint. Use GET /api/deploy/:deploymentId/logs for real deployment logs.',
+    });
 };
 
 const getDeploymentStatus = (req, res) => {
-    res.json({ status: 'idle' });
+    res.status(501).json({
+        error: 'Deprecated endpoint. Use GET /api/deploy/:deploymentId for real deployment status.',
+    });
 };
 
 const getAnalyticsDashboard = (req, res) => {

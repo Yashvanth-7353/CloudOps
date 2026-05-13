@@ -3,12 +3,12 @@ import RepoCard, { Repo } from './RepoCard';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { githubService, GitHubRepository } from '@/services/github-service';
+import { axiosClient } from '@/services/api/axios-client';
 import { useAuth } from '@/app/providers/auth-provider';
 import { useNavigate } from 'react-router-dom';
-import { Github, Loader2, RefreshCw, Search, Plus, Trash2, X } from 'lucide-react';
+import { Github, Loader2, Search, Plus, Trash2, X } from 'lucide-react';
 
 const STORAGE_KEY = 'cloudops_connected_repositories';
-const DEPLOYED_PROJECTS_KEY = 'cloudops_deployed_projects';
 
 type EnvDraft = {
   id: number;
@@ -16,21 +16,23 @@ type EnvDraft = {
   value: string;
 };
 
-const buildProjectLogs = (repoFullName: string, envPairs: Array<{ key: string; value: string }>) => {
-  const time = new Date().toISOString();
-  const envCount = envPairs.length;
-  return [
-    `[${time}] Deployment request received for ${repoFullName}.`,
-    `[${time}] Validated repository access and deployment configuration.`,
-    `[${time}] Loaded ${envCount} environment variable${envCount === 1 ? '' : 's'}.`,
-    `[${time}] Cloned repository and started dependency installation.`,
-    `[${time}] Built artifact and published deployment image.`,
-    `[${time}] Deployment marked live and health checks passed.`,
-  ];
+const isObjectId = (value: string | undefined | null) => !!value && /^[a-f0-9]{24}$/i.test(value);
+
+const buildProjectId = (repoId: string | number, user: any) => {
+  const fromUser = user?.id || user?._id || user?.sub;
+  if (isObjectId(fromUser)) {
+    return fromUser;
+  }
+
+  if (typeof repoId === 'number' && Number.isFinite(repoId)) {
+    return Math.abs(repoId).toString(16).padStart(24, '0').slice(0, 24);
+  }
+
+  return '507f1f77bcf86cd799439011';
 };
 
 const RepoList: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -40,6 +42,8 @@ const RepoList: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [deployingRepo, setDeployingRepo] = useState<Repo | null>(null);
   const [envVars, setEnvVars] = useState<EnvDraft[]>([{ id: 1, key: 'NODE_ENV', value: 'production' }]);
+  const [isStartingDeployment, setIsStartingDeployment] = useState(false);
+  const [startDeploymentError, setStartDeploymentError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -134,7 +138,7 @@ const RepoList: React.FC = () => {
     setEnvVars((current) => current.filter((item) => item.id !== id));
   };
 
-  const confirmDeploy = () => {
+  const confirmDeploy = async () => {
     if (!deployingRepo) return;
 
     const repoToDeploy = deployingRepo;
@@ -143,40 +147,45 @@ const RepoList: React.FC = () => {
       .map((item) => ({ key: item.key.trim(), value: item.value.trim() }))
       .filter((item) => item.key.length > 0);
 
-    const liveUrl = `https://preview.cloudops.app/${encodeURIComponent(repoToDeploy.name)}`;
+    const environmentVariables = normalizedEnvVars.reduce<Record<string, string>>((acc, item) => {
+      acc[item.key] = item.value;
+      return acc;
+    }, {});
 
-    const deployedProject = {
-      id: repoToDeploy.id,
-      name: repoToDeploy.name,
-      fullName: repoToDeploy.fullName,
-      language: repoToDeploy.language,
-      deployedAt: new Date().toISOString(),
-      liveUrl,
-      envVars: normalizedEnvVars,
-      deploymentStatus: 'Live',
-      logDetails: buildProjectLogs(repoToDeploy.fullName, normalizedEnvVars),
-    };
+    setStartDeploymentError(null);
+    setIsStartingDeployment(true);
 
     try {
-      const raw = localStorage.getItem(DEPLOYED_PROJECTS_KEY);
-      const current = raw ? JSON.parse(raw) : [];
-      const next = Array.isArray(current)
-        ? [deployedProject, ...current.filter((item: any) => item.id !== repoToDeploy.id)]
-        : [deployedProject];
+      const response = await axiosClient.post('/api/deploy/start', {
+        projectId: buildProjectId(repoToDeploy.id, user),
+        repositoryUrl: repoToDeploy.cloneUrl,
+        branch: repoToDeploy.defaultBranch || 'main',
+        environmentVariables,
+      });
 
-      localStorage.setItem(DEPLOYED_PROJECTS_KEY, JSON.stringify(next));
-      window.dispatchEvent(new Event('cloudops:deployed-projects-updated'));
-    } catch {
-      localStorage.setItem(DEPLOYED_PROJECTS_KEY, JSON.stringify([deployedProject]));
-      window.dispatchEvent(new Event('cloudops:deployed-projects-updated'));
+      const deploymentId = response?.data?.deploymentId;
+      if (!deploymentId) {
+        throw new Error('Deployment started but no deploymentId was returned by the server.');
+      }
+
+      sessionStorage.setItem('cloudops_selected_repository', JSON.stringify({ ...repoToDeploy, envVars: normalizedEnvVars }));
+      setDeployingRepo(null);
+      navigate(`/deployment-logs?deploymentId=${encodeURIComponent(deploymentId)}`);
+    } catch (deployError: any) {
+      setStartDeploymentError(
+        deployError?.response?.data?.error
+        || deployError?.response?.data?.details?.join(', ')
+        || deployError?.message
+        || 'Unable to start deployment.'
+      );
+    } finally {
+      setIsStartingDeployment(false);
     }
-
-    sessionStorage.setItem('cloudops_selected_repository', JSON.stringify({ ...repoToDeploy, envVars: normalizedEnvVars }));
-    setDeployingRepo(null);
-    navigate(`/deployment-logs?repo=${encodeURIComponent(repoToDeploy.fullName)}`);
   };
 
   const closeDeployModal = () => {
+    if (isStartingDeployment) return;
+    setStartDeploymentError(null);
     setDeployingRepo(null);
   };
 
@@ -196,15 +205,18 @@ const RepoList: React.FC = () => {
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-2xl font-semibold text-white">Deploy {deployingRepo.name}</h3>
-              <p className="mt-1 text-sm text-white/60">Add environment variables before continuing to deployment logs.</p>
+              <h3 className="text-2xl font-semibold text-white">
+                Deploy {deployingRepo.name}
+              </h3>
+              <p className="mt-1 text-sm text-white/60">Add environment variables, then start deployment to see real server logs.</p>
             </div>
 
             <button
               type="button"
               onClick={closeDeployModal}
-              className="rounded-xl border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-white/10"
+              className={`rounded-xl border border-white/10 bg-white/5 p-2 text-white/70 transition ${isStartingDeployment ? 'cursor-not-allowed opacity-40' : 'hover:bg-white/10'}`}
               aria-label="Close deploy dialog"
+              disabled={isStartingDeployment}
             >
               <X className="h-5 w-5" />
             </button>
@@ -230,6 +242,7 @@ const RepoList: React.FC = () => {
                   onClick={() => removeEnvVar(item.id)}
                   className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/70 transition hover:bg-white/10"
                   aria-label="Remove environment variable"
+                  disabled={isStartingDeployment}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -237,11 +250,18 @@ const RepoList: React.FC = () => {
             ))}
           </div>
 
+          {startDeploymentError && (
+            <div className="mt-4 rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              {startDeploymentError}
+            </div>
+          )}
+
           <div className="mt-4 flex items-center justify-between gap-4">
             <button
               type="button"
               onClick={addEnvVar}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80 transition hover:bg-white/10"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80 transition hover:bg-white/10 disabled:opacity-50"
+              disabled={isStartingDeployment}
             >
               <Plus className="h-4 w-4" />
               Add variable
@@ -251,16 +271,18 @@ const RepoList: React.FC = () => {
               <button
                 type="button"
                 onClick={closeDeployModal}
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80 transition hover:bg-white/10"
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80 transition hover:bg-white/10 disabled:opacity-50"
+                disabled={isStartingDeployment}
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={confirmDeploy}
-                className="rounded-xl bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20"
+                className="rounded-xl bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20 disabled:opacity-50"
+                disabled={isStartingDeployment}
               >
-                Continue deploy
+                {isStartingDeployment ? 'Starting deployment...' : 'Start deployment'}
               </button>
             </div>
           </div>
@@ -286,15 +308,6 @@ const RepoList: React.FC = () => {
             >
               <Github className="h-4 w-4" />
               Connect repository
-            </button>
-
-            <button
-              type="button"
-              onClick={fetchRepositories}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white/80 transition hover:bg-white/10"
-            >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh list
             </button>
           </div>
         </div>
@@ -380,5 +393,4 @@ const RepoList: React.FC = () => {
     </div>
   );
 };
-
 export default RepoList;

@@ -2,11 +2,17 @@ import React from 'react';
 import { motion } from 'framer-motion';
 
 const LiveProgressBar: React.FC<{ steps: string[]; current: number; progress: number }> = ({ steps, current, progress }) => {
+  const currentStep = steps[current] || 'Starting...';
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between text-sm text-white/70">
-        <div>{steps[current] || 'Starting...'}</div>
+        <div>Current status</div>
         <div>{Math.round(progress)}%</div>
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+        <div className="text-sm font-medium text-white">{currentStep}</div>
       </div>
 
       <div className="w-full bg-white/6 rounded-full h-3 overflow-hidden">
@@ -16,14 +22,6 @@ const LiveProgressBar: React.FC<{ steps: string[]; current: number; progress: nu
           animate={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
           transition={{ ease: 'easeInOut', duration: 0.6 }}
         />
-      </div>
-
-      <div className="flex gap-2 items-center justify-between mt-2 text-xs text-white/60">
-        {steps.map((s, i) => (
-          <div key={s} className={`flex-1 text-center ${i === current ? 'text-white' : 'text-white/50'}`}>
-            {s}
-          </div>
-        ))}
       </div>
     </div>
   );

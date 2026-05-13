@@ -4,7 +4,6 @@ import CloudIllustration from '@/components/auth/CloudIllustration';
 import LoginCard from '@/components/auth/LoginCard';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/app/providers/auth-provider';
-
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

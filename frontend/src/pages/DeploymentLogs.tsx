@@ -1,114 +1,154 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useSearchParams } from 'react-router-dom';
 import LiveProgressBar from '@/components/deployments/LiveProgressBar';
 import TerminalStream from '@/components/deployments/TerminalStream';
 import DeploymentTimeline from '@/components/deployments/DeploymentTimeline';
-import DeployControls from '@/components/deployments/DeployControls';
 import { DashboardLayout } from '@/components/layout';
-import { useSearchParams } from 'react-router-dom';
+import { axiosClient } from '@/services/api/axios-client';
 
-const STEPS = ['Cloning Repository', 'Installing Dependencies', 'Building Docker Image', 'Pushing to AWS', 'Deployment Successful'];
-const DEPLOYED_PROJECTS_KEY = 'cloudops_deployed_projects';
+const STEPS = [
+  'Preparing Deployment',
+  'Cloning Repository',
+  'Detecting Framework',
+  'Generating Dockerfile',
+  'Building Docker Image',
+  'Pushing to AWS ECR',
+  'Deploying to ECS',
+  'Deployment Successful',
+];
 
-type DeployedProject = {
-  id: string;
-  name: string;
-  fullName: string;
-  liveUrl?: string;
-  logDetails?: string[];
-  deploymentStatus?: string;
+const phaseToStep: Record<string, number> = {
+  preparation: 0,
+  clone: 1,
+  framework_detection: 2,
+  dockerfile_generation: 3,
+  docker_build: 4,
+  push_ecr: 5,
+  ecs_deploy: 6,
+  dns_setup: 6,
+  complete: 7,
+};
+
+type DeploymentLog = {
+  timestamp?: string;
+  source?: string;
+  message?: string;
+};
+
+type DeploymentDetails = {
+  _id: string;
+  status: string;
+  phase: string;
+  publicUrl?: string;
+  error?: {
+    message?: string;
+  };
 };
 
 export default function DeploymentLogsPage() {
   const [searchParams] = useSearchParams();
-  const [currentStep, setCurrentStep] = useState(0);
-  const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [running, setRunning] = useState(false);
-  const [liveUrl, setLiveUrl] = useState('https://preview.cloudops.app/your-app');
-  const [selectedProject, setSelectedProject] = useState<DeployedProject | null>(null);
+  const deploymentId = searchParams.get('deploymentId') || '';
+
+  const [deployment, setDeployment] = useState<DeploymentDetails | null>(null);
+  const [logs, setLogs] = useState<DeploymentLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const repoQuery = searchParams.get('repo');
-
-    try {
-      const raw = localStorage.getItem(DEPLOYED_PROJECTS_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      const projects = Array.isArray(parsed) ? parsed : [];
-      const project = projects.find((item: DeployedProject) => item.fullName === repoQuery) || null;
-      setSelectedProject(project);
-      if (project?.liveUrl) {
-        setLiveUrl(project.liveUrl);
-      }
-      if (project?.logDetails?.length) {
-        setLogs(project.logDetails);
-        setCurrentStep(STEPS.length - 1);
-        setProgress(100);
-        setRunning(false);
-      } else {
-        setLogs([]);
-        setCurrentStep(0);
-        setProgress(0);
-      }
-    } catch {
-      setSelectedProject(null);
+    if (!deploymentId) {
+      setError('Missing deploymentId. Start a deployment from the dashboard to view real logs.');
+      setLoading(false);
+      return;
     }
-  }, [searchParams]);
 
-  useEffect(() => {
-    let timer: any;
-    if (!running) return;
+    let disposed = false;
 
-    // simulate progress
-    timer = setInterval(() => {
-      setProgress(prev => {
-        const next = prev + Math.random() * 8;
-        if (next >= 100) {
-          // advance to next step
-          setProgress(0);
-          setCurrentStep(s => Math.min(STEPS.length - 1, s + 1));
-          return 0;
+    const fetchDeployment = async () => {
+      try {
+        const [statusResponse, logsResponse] = await Promise.all([
+          axiosClient.get(`/api/deploy/${deploymentId}`),
+          axiosClient.get(`/api/deploy/${deploymentId}/logs`, { params: { limit: 200 } }),
+        ]);
+
+        if (disposed) return;
+
+        const nextDeployment = statusResponse?.data?.deployment || null;
+        const nextLogs = Array.isArray(logsResponse?.data?.logs) ? logsResponse.data.logs : [];
+
+        setDeployment(nextDeployment);
+        setLogs(
+          [...nextLogs].sort((a: DeploymentLog, b: DeploymentLog) => {
+            const aTime = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const bTime = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return aTime - bTime;
+          })
+        );
+        setError(null);
+      } catch (fetchError: any) {
+        if (disposed) return;
+        setError(fetchError?.response?.data?.error || fetchError?.message || 'Unable to load deployment logs.');
+      } finally {
+        if (!disposed) {
+          setLoading(false);
         }
-        return Math.min(100, next);
-      });
-    }, 700);
+      }
+    };
 
-    return () => clearInterval(timer);
-  }, [running]);
+    void fetchDeployment();
+    const timer = setInterval(fetchDeployment, 3000);
 
-  useEffect(() => {
-    // add logs based on currentStep
-    if (!running) return;
-    const lines = sampleLogsForStep(currentStep, selectedProject?.fullName || 'repo');
-    let idx = 0;
-    const id = setInterval(() => {
-      if (idx >= lines.length) { clearInterval(id); return; }
-      setLogs(prev => [...prev, lines[idx]]);
-      idx += 1;
-    }, 450);
-    return () => clearInterval(id);
-  }, [currentStep, running, selectedProject]);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
+  }, [deploymentId]);
 
-  useEffect(() => {
-    // finish when reach final step
-    if (currentStep >= STEPS.length - 1) {
-      setRunning(false);
-      setProgress(100);
+  const currentStep = useMemo(() => {
+    if (!deployment) return 0;
+    if (deployment.status === 'success') return STEPS.length - 1;
+    return phaseToStep[deployment.phase] ?? 0;
+  }, [deployment]);
+
+  const progress = useMemo(() => {
+    if (!deployment) return 0;
+    if (deployment.status === 'success') return 100;
+
+    const stepPortion = Math.max(1, STEPS.length - 1);
+    const base = (Math.min(currentStep, stepPortion) / stepPortion) * 100;
+
+    if (deployment.status === 'failed' || deployment.status === 'cancelled') {
+      return Math.max(5, Math.round(base));
     }
-  }, [currentStep]);
 
-  const timeline = useMemo(() => STEPS.map((label, i) => ({ label, status: i < currentStep ? 'success' : i === currentStep && running ? 'running' : i === currentStep ? 'running' : 'pending' })), [currentStep, running]);
+    return Math.min(95, Math.max(5, Math.round(base + 8)));
+  }, [deployment, currentStep]);
 
-  const start = () => {
-    setLogs([]);
-    setCurrentStep(0);
-    setProgress(0);
-    setRunning(true);
-  };
+  const isRunning = deployment ? !['success', 'failed', 'cancelled'].includes(deployment.status) : false;
 
-  const restart = () => {
-    start();
-  };
+  const timeline = useMemo(() => {
+    return STEPS.map((label, index) => {
+      if ((deployment?.status === 'failed' || deployment?.status === 'cancelled') && index === currentStep) {
+        return { label, status: 'failed' };
+      }
+      if (index < currentStep) {
+        return { label, status: 'success' };
+      }
+      if (index === currentStep && isRunning) {
+        return { label, status: 'running' };
+      }
+      if (deployment?.status === 'success' && index === currentStep) {
+        return { label, status: 'success' };
+      }
+      return { label, status: 'pending' };
+    });
+  }, [currentStep, deployment, isRunning]);
+
+  const renderedLogs = logs.map((log) => {
+    const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
+    const source = log.source ? `[${log.source}] ` : '';
+    return `${ts ? `[${ts}] ` : ''}${source}${log.message || ''}`.trim();
+  });
 
   return (
     <DashboardLayout>
@@ -116,26 +156,24 @@ export default function DeploymentLogsPage() {
         <div className="max-w-6xl mx-auto">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
             <h1 className="text-3xl font-bold text-white">Deployment Logs</h1>
-            <p className="text-white/60">
-              {selectedProject ? `Real-time logs for ${selectedProject.fullName}.` : 'Select a deployed project from Sidebar > Logs to see project logs.'}
-            </p>
+            <p className="text-white/60">Showing only real-time backend logs for this deployment.</p>
           </motion.div>
+
+          {error && (
+            <div className="mb-4 rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              {error}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-4">
               <div className="backdrop-blur-md bg-[rgba(6,10,20,0.6)] border border-white/6 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="w-2/3">
+                  <div className="w-full">
                     <LiveProgressBar steps={STEPS} current={currentStep} progress={progress} />
                   </div>
-
-                  <div className="flex items-center gap-3">
-                    <DeployControls liveUrl={liveUrl} onCopy={() => { /* feedback could be added */ }} onRestart={restart} />
-                    <button onClick={start} className="px-3 py-2 rounded-md bg-primary text-black font-semibold">Start</button>
-                  </div>
                 </div>
-
-                <TerminalStream logs={logs} />
+                <TerminalStream logs={renderedLogs} />
               </div>
 
               <div className="backdrop-blur-md bg-[rgba(6,10,20,0.5)] border border-white/6 rounded-xl p-4">
@@ -149,14 +187,23 @@ export default function DeploymentLogsPage() {
                 <h3 className="text-lg font-semibold text-white mb-2">Live Preview</h3>
                 <div className="text-sm text-white/70 mb-3">Live URL</div>
                 <div className="flex items-center gap-2">
-                  <a href={liveUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-md bg-white/6 hover:bg-white/8 truncate">{liveUrl}</a>
+                  {deployment?.publicUrl ? (
+                    <a href={deployment.publicUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded-md bg-white/6 hover:bg-white/8 truncate">
+                      {deployment.publicUrl}
+                    </a>
+                  ) : (
+                    <span className="px-3 py-2 rounded-md bg-white/6 text-white/60">Not available yet</span>
+                  )}
                 </div>
               </div>
 
               <div className="backdrop-blur-md bg-[rgba(6,10,20,0.5)] border border-white/6 rounded-xl p-4">
                 <h3 className="text-lg font-semibold text-white mb-2">Status</h3>
-                <div className="text-sm text-white/70 mb-2">{running ? 'Running' : selectedProject?.deploymentStatus || (currentStep >= STEPS.length -1 ? 'Completed' : 'Idle')}</div>
-                <div className="text-xs text-white/60">Last updated: {new Date().toLocaleString()}</div>
+                <div className="text-sm text-white/70 mb-2">{loading ? 'Loading...' : deployment?.status || 'Unknown'}</div>
+                <div className="text-xs text-white/60">Phase: {deployment?.phase || 'N/A'}</div>
+                {deployment?.error?.message && (
+                  <div className="mt-2 text-xs text-rose-300">{deployment.error.message}</div>
+                )}
               </div>
             </div>
           </div>
@@ -164,38 +211,4 @@ export default function DeploymentLogsPage() {
       </main>
     </DashboardLayout>
   );
-}
-
-function sampleLogsForStep(step: number, repoName: string) {
-  switch (step) {
-    case 0:
-      return [
-        `Cloning into '${repoName}'...`,
-        `remote: Enumerating objects: 54, done.`,
-        `Receiving objects: 100% (54/54), 12.34 KiB | 1.23 MiB/s, done.`,
-      ];
-    case 1:
-      return [
-        `Installing dependencies...`,
-        `npm WARN deprecated package@1.0.0: critical fix available`,
-        `added 234 packages in 12.3s`,
-      ];
-    case 2:
-      return [
-        `Building Docker image...`,
-        `Step 1/12 : FROM node:18-alpine`,
-        ` ---> Using cache`,
-        `Successfully built abcdef123456`,
-      ];
-    case 3:
-      return [
-        `Pushing image to AWS ECR...`,
-        `Login Succeeded`,
-        `Pushed: 12/12 layers`,
-      ];
-    case 4:
-      return [`Deployment complete. Application available at: ${'https://preview.cloudops.app/your-app'}`];
-    default:
-      return [`Working...`];
-  }
 }
