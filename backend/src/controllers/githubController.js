@@ -118,7 +118,52 @@ const connectRepository = async (req, res) => {
     }
 };
 
+// --- ADD THIS FUNCTION ---
+const removeRepository = async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) return res.status(401).json({ error: 'No token provided' });
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (!decoded.githubToken) return res.status(400).json({ error: 'GitHub account is not connected' });
+
+        const { owner, repo } = req.params;
+        const userId = decoded.id; 
+
+        // 1. Find the project to get the webhook ID
+        const project = await Project.findOne({ repositoryName: repo, repositoryOwner: owner, userId });
+        
+        if (!project) {
+            return res.status(404).json({ error: 'Repository connection not found in database.' });
+        }
+
+        // 2. Delete the webhook from GitHub (if we have an ID)
+        if (project.githubWebhookId) {
+            try {
+                await githubService.deleteWebhook(owner, repo, project.githubWebhookId, decoded.githubToken);
+                console.log(`✅ Webhook deleted for ${owner}/${repo}`);
+            } catch (webhookError) {
+                // We log the error but CONTINUE. We don't want a broken webhook to trap the user.
+                console.warn(`⚠️ Could not delete webhook on GitHub, proceeding to delete local project.`);
+            }
+        }
+
+        // 3. Delete the project from our database
+        await Project.findByIdAndDelete(project._id);
+        console.log(`🗑️ Project ${owner}/${repo} removed from database.`);
+
+        res.status(200).json({ success: true, message: 'Repository disconnected successfully.' });
+
+    } catch (error) {
+        console.error('Failed to remove repository:', error);
+        res.status(500).json({ error: error.message || 'Unable to remove repository' });
+    }
+};
+
+// Update your module.exports at the bottom to include it:
 module.exports = {
     getRepositories,
-    connectRepository, 
+    connectRepository,
+    removeRepository, // <-- Added this
 };

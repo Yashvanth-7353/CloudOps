@@ -24,6 +24,7 @@ const RepoCard: React.FC<{
   onDeploy?: (repo: Repo) => void;
 }> = ({ repo, selected = false, onConnect, onRemove, onDeploy }) => {
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   const handleConnect = async () => {
@@ -54,6 +55,30 @@ const RepoCard: React.FC<{
       setFeedback({ type: 'error', message: error.message || 'Failed to connect repo.' });
     } finally {
       setIsConnecting(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    setIsRemoving(true);
+    setFeedback(null);
+    try {
+      const repositoryOwner = repo.fullName.split('/')[0];
+      
+      // Call our new backend route
+      await githubService.removeRepository(repositoryOwner, repo.name);
+      
+      setFeedback({ type: 'success', message: 'Repository disconnected successfully!' });
+      
+      // Wait a moment so they see the success message, then remove it from the UI
+      setTimeout(() => {
+        onRemove?.(repo);
+      }, 1500);
+
+    } catch (error: any) {
+      console.error(error);
+      setFeedback({ type: 'error', message: error.message || 'Failed to disconnect repo.' });
+    } finally {
+      setIsRemoving(false);
     }
   };
 
@@ -122,10 +147,22 @@ const RepoCard: React.FC<{
             <>
               <button
                 type="button"
-                onClick={() => onRemove?.(repo)}
-                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium bg-white/6 text-white/85 hover:bg-white/10 transition"
+                onClick={handleRemove}
+                disabled={isRemoving}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                  isRemoving 
+                    ? 'bg-red-500/10 text-red-100/50 cursor-not-allowed' 
+                    : 'bg-white/6 text-white/85 hover:bg-red-500/20 hover:text-red-200'
+                }`}
               >
-                Remove
+                {isRemoving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Removing...
+                  </>
+                ) : (
+                  'Remove'
+                )}
               </button>
 
               <button

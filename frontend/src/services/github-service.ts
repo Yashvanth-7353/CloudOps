@@ -32,5 +32,16 @@ export const githubService = {
       console.error('Failed to connect repo:', error);
       throw new Error(error.response?.data?.error || 'Failed to connect repository');
     }
-  }
+  },
+
+  // Add this inside the githubService object
+  removeRepository: async (owner: string, repo: string) => {
+    try {
+      const response = await axiosClient.delete(`/api/github/disconnect/${owner}/${repo}`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to remove repo:', error);
+      throw new Error(error.response?.data?.error || 'Failed to remove repository');
+    }
+  },
 };

@@ -51,6 +51,28 @@ class GithubService {
       throw new Error(`Failed to create GitHub webhook: ${errorMsg}`);
     }
   }
+
+  async deleteWebhook(owner, repo, webhookId, accessToken) {
+    try {
+      await axios.delete(
+        `https://api.github.com/repos/${owner}/${repo}/hooks/${webhookId}`,
+        {
+          headers: {
+            Authorization: `token ${accessToken}`,
+            Accept: 'application/vnd.github.v3+json'
+          }
+        }
+      );
+      return true;
+    } catch (error) {
+      // If GitHub says 404 Not Found, it's already deleted, which is fine!
+      if (error.response?.status === 404) {
+        return true; 
+      }
+      console.error('Error deleting webhook:', error.response?.data || error.message);
+      throw new Error('Failed to delete webhook from GitHub');
+    }
+  }
 }
 
 module.exports = new GithubService();
