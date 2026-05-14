@@ -44,10 +44,25 @@ io.on('connection', (socket) => {
 app.use(cors());
 app.use(express.json());
 
+// --- MONGODB CONNECTION ---
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('✅ MongoDB connected successfully!'))
     .catch((err) => {
-        console.error('❌ MongoDB connection error:', err);
+        console.error('❌ MongoDB connection error:');
+
+        // More actionable hints for common failures
+        const errmsg = err && (err.message || (err.errorResponse && err.errorResponse.errmsg)) || '';
+        if (/Authentication failed|bad auth/i.test(errmsg) || (err && err.codeName === 'AtlasError')) {
+            console.error('Authentication failed: check MongoDB username/password in backend/.env.');
+            console.error('If your password has special characters, URL-encode it (e.g. replace @ with %40).');
+            console.error('Also confirm the Atlas DB user exists and has proper roles.');
+        } else if (/querySrv|ENOTFOUND/i.test(errmsg) || (err && err.code === 'ENOTFOUND')) {
+            console.error('DNS/SRV lookup failed: try using the non-SRV connection string or check DNS settings.');
+        } else if (/ECONNREFUSED|connection refused/i.test(errmsg)) {
+            console.error('Connection refused: confirm network access, firewall rules, and Atlas IP whitelist.');
+        }
+
+        console.error(err);
         process.exit(1);
     });
 
