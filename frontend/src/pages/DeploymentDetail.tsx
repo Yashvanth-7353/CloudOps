@@ -13,7 +13,6 @@ import {
   HardDriveDownload,
   Loader2,
   Server,
-  TriangleAlert,
   XCircle,
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
@@ -364,7 +363,7 @@ export default function DeploymentDetailPage() {
                 {deployment.error?.message && (
                   <div className="rounded-3xl border border-rose-400/20 bg-rose-500/10 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
                     <div className="flex items-center gap-2 text-rose-200">
-                      <TriangleAlert className="h-5 w-5" />
+                      <AlertTriangle className="h-5 w-5" />
                       <h2 className="text-lg font-semibold">Failure details</h2>
                     </div>
                     <p className="mt-3 text-sm text-rose-100/85">{deployment.error.message}</p>
