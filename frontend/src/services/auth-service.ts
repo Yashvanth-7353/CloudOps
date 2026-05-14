@@ -56,6 +56,11 @@ export const deploymentService = {
 
   rollback: (id: string) =>
     apiClient.post(generateEndpoint(ENDPOINTS.DEPLOYMENTS.ROLLBACK, { id })),
+  // Terminate an AWS deployment (deletes EC2 instance and optionally ECR/S3)
+  terminateAwsDeployment: (instanceId: string, data?: Record<string, any>) => {
+    const payload = { data: { ...data, cleanupECR: data?.cleanupECR !== false } };
+    return apiClient.delete(`/api/aws/deployments/${instanceId}`, payload);
+  },
 };
 
 /**

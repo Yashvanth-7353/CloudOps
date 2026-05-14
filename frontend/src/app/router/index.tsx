@@ -18,7 +18,8 @@ const AnalyticsPage = lazy(() => import('@/pages/Analytics'));
 const BillingPage = lazy(() => import('@/pages/Billing'));
 const PricingPage = lazy(() => import('@/pages/Pricing'));
 const SettingsPage = lazy(() => import('@/pages/Settings'));
-const DeploymentLogsPage = lazy(() => import('@/pages/DeploymentLogs'));
+const DeploymentsPage = lazy(() => import('@/pages/Deployments'));
+const DeploymentDetailPage = lazy(() => import('@/pages/DeploymentDetail'));
 const LiveProjectsPage = lazy(() => import('@/pages/LiveProjects'));
 const DocsPage = lazy(() => import('@/pages/Docs'));
 
@@ -73,8 +74,9 @@ function Routes() {
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/billing" element={<BillingPage />} />
               <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/deployments" element={<DeploymentLogsPage />} />
-              <Route path="/deployment-logs" element={<DeploymentLogsPage />} />
+              <Route path="/deployments" element={<DeploymentsPage />} />
+              <Route path="/deployment-logs" element={<DeploymentsPage />} />
+              <Route path="/deployments/:id" element={<DeploymentDetailPage />} />
               <Route path="/live-projects" element={<LiveProjectsPage />} />
               <Route path="/deploy/:owner/:repo" element={<DeployProject />} />
             </Route>

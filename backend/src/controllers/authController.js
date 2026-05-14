@@ -39,7 +39,7 @@ const githubCallbackHandler = async (req, res) => {
         });
 
         const user = userResponse.data;
-
+        console.log(user.email);
         const jwtToken = jwt.sign(
             {
                 id: user.id,

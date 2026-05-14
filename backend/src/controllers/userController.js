@@ -11,7 +11,7 @@ const getCurrentUserProfile = (req, res) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         res.json({
             user: {
-                id: decoded.id,
+                id: String(decoded.id),
                 username: decoded.username,
                 email: decoded.email,
                 avatar: decoded.avatar,

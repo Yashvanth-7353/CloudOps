@@ -11,7 +11,7 @@ const DeploymentFailedState: React.FC = () => {
       description="The latest deployment stopped during the release pipeline. Review logs, retry the build, or roll back to the previous healthy version."
       actions={[
         { label: 'Retry deployment', onClick: () => undefined },
-        { label: 'View logs', href: '/deployment-logs', variant: 'secondary' },
+        { label: 'View deployments', href: '/deployments', variant: 'secondary' },
       ]}
       illustration={
         <div className="relative mx-auto flex items-center justify-center">

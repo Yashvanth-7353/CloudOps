@@ -68,7 +68,7 @@ const connectRepository = async (req, res) => {
         }
 
         const { repositoryName, repositoryOwner, repositoryUrl, isPrivate, description } = req.body;
-        const userId = decoded.id; 
+        const userId = String(decoded.id); 
 
         // 1. Verify project isn't already connected
         const existingProject = await Project.findOne({ repositoryName, repositoryOwner, userId });
@@ -129,7 +129,7 @@ const removeRepository = async (req, res) => {
         if (!decoded.githubToken) return res.status(400).json({ error: 'GitHub account is not connected' });
 
         const { owner, repo } = req.params;
-        const userId = decoded.id; 
+        const userId = String(decoded.id); 
 
         // 1. Find the project to get the webhook ID
         const project = await Project.findOne({ repositoryName: repo, repositoryOwner: owner, userId });
@@ -161,9 +161,57 @@ const removeRepository = async (req, res) => {
     }
 };
 
+/**
+ * Get all connected repositories for the current user from MongoDB
+ * GET /api/github/connected
+ */
+const getConnectedRepositories = async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded.id;
+
+        // Query MongoDB for all projects connected by this user
+        const projects = await Project.find({ userId }).sort({ createdAt: -1 });
+
+        // Map to frontend format
+        const connectedRepos = projects.map(project => ({
+            id: project._id.toString(),
+            name: project.repositoryName,
+            fullName: `${project.repositoryOwner}/${project.repositoryName}`,
+            repositoryUrl: project.repositoryUrl,
+            isPrivate: project.isPrivate,
+            description: project.description,
+            status: project.status,
+            createdAt: project.createdAt,
+            updatedAt: project.updatedAt,
+            webhookId: project.githubWebhookId,
+            lastDeployedAt: project.lastDeployedAt,
+        }));
+
+        console.log(`✅ Retrieved ${connectedRepos.length} connected repositories for user ${userId}`);
+
+        res.status(200).json({
+            success: true,
+            count: connectedRepos.length,
+            repositories: connectedRepos,
+        });
+
+    } catch (error) {
+        console.error('Failed to fetch connected repositories:', error);
+        res.status(500).json({ error: error.message || 'Unable to fetch connected repositories' });
+    }
+};
+
 // Update your module.exports at the bottom to include it:
 module.exports = {
     getRepositories,
     connectRepository,
-    removeRepository, // <-- Added this
+    removeRepository,
+    getConnectedRepositories,
 };

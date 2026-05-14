@@ -10,23 +10,23 @@ const DeploymentSchema = new mongoose.Schema(
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Project',
-      required: true,
+      required: false,  // Can be null for ad-hoc deployments without a connected project
       index: true,
     },
     userId: {
-      type: String, // <-- Changed to String to match GitHub IDs!
+      type: String,
       required: true,
       index: true,
     },
     status: {
       type: String,
-      enum: ['pending', 'cloning', 'detecting', 'building', 'pushing', 'deploying', 'success', 'failed', 'cancelled'],
+      enum: ['pending', 'queued', 'cloning', 'detecting', 'building', 'pushing', 'deploying', 'running', 'stopped', 'success', 'failed', 'cancelled', 'closed', 'redeployed'],
       default: 'pending',
       index: true,
     },
     phase: {
       type: String,
-      enum: ['preparation', 'clone', 'framework_detection', 'dockerfile_generation', 'docker_build', 'push_ecr', 'ecs_deploy', 'dns_setup', 'complete'],
+      enum: ['preparation', 'queued', 'clone', 'framework_detection', 'dockerfile_generation', 'docker_build', 'container_start', 'nginx_setup', 'push_ecr', 'ec2_launch', 'ecs_deploy', 'dns_setup', 'cleanup', 'complete'],
       default: 'preparation',
     },
     // Git information
@@ -56,6 +56,43 @@ const DeploymentSchema = new mongoose.Schema(
     dockerBuildTime: Number, // in milliseconds
     dockerImageSize: Number, // in bytes
     dockerfile: String, // Dockerfile content
+
+    // Infrastructure / cloud deployment details
+    infrastructure: {
+      provider: {
+        type: String,
+        default: 'aws',
+      },
+      targetType: {
+        type: String,
+        enum: ['local', 'ssh', 'aws'],
+      },
+      region: String,
+      target: mongoose.Schema.Types.Mixed,
+      ecr: {
+        repositoryArn: String,
+        repositoryName: String,
+        repositoryUri: String,
+        imageUri: String,
+        imageTag: String,
+      },
+      ec2: {
+        instanceId: String,
+        publicIp: String,
+        privateIp: String,
+        instanceType: String,
+        keyName: String,
+        securityGroupIds: [String],
+        vpcId: String,
+      },
+      container: {
+        name: String,
+        imageName: String,
+        port: Number,
+      },
+      liveUrl: String,
+      deployState: String,
+    },
 
     // ECS deployment
     ecsClusterName: String,
@@ -127,11 +164,11 @@ const DeploymentSchema = new mongoose.Schema(
       timestamp: Date,
       source: {
         type: String,
-        enum: ['system', 'git', 'framework', 'docker', 'ecr', 'ecs', 'route53', 'app'],
+        enum: ['system', 'git', 'framework', 'docker', 'aws', 'ecr', 'ecs', 'route53', 'app'],
       },
       level: {
         type: String,
-        enum: ['debug', 'info', 'warn', 'error'],
+        enum: ['debug', 'info', 'warn', 'error', 'success'],
       },
       message: String,
       data: mongoose.Schema.Types.Mixed,

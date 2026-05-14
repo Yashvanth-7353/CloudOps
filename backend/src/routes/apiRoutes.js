@@ -1,4 +1,5 @@
 const express = require('express');
+const authMiddleware = require('../middleware/authMiddleware');
 const {
     healthCheck,
     listDeployments,
@@ -26,10 +27,10 @@ router.get('/deployments/:id', getDeploymentById);
 router.get('/deployments/:id/logs', getDeploymentLogs);
 router.get('/deployments/:id/status', getDeploymentStatus);
 
-router.get('/analytics/dashboard', getAnalyticsDashboard);
-router.get('/analytics/deployments', getAnalyticsDeployments);
-router.get('/analytics/costs', getAnalyticsCosts);
-router.get('/analytics/performance', getAnalyticsPerformance);
+router.get('/analytics/dashboard', authMiddleware, getAnalyticsDashboard);
+router.get('/analytics/deployments', authMiddleware, getAnalyticsDeployments);
+router.get('/analytics/costs', authMiddleware, getAnalyticsCosts);
+router.get('/analytics/performance', authMiddleware, getAnalyticsPerformance);
 
 router.get('/billing/usage', getBillingUsage);
 router.get('/billing/plans', getBillingPlans);
