@@ -232,6 +232,26 @@ class DeploymentEngineService {
     const userId = input.userId != null ? String(input.userId) : null;
     const triggeredBy = input.triggeredBy || 'manual';
     const webhookId = input.webhookId || null;
+    const versionDetails = input.versionDetails || null;
+    const webhookPayload = input.webhookPayload || null;
+    const previousDeploymentId = input.previousDeploymentId || null;
+    const previousDeployment = previousDeploymentId ? await Deployment.findById(previousDeploymentId) : null;
+
+    const commitHash = input.commitHash || null;
+    const commitShortHash = input.commitShortHash || (commitHash ? String(commitHash).slice(0, 7) : null);
+    const commitMessage = input.commitMessage || null;
+    const commitAuthor = input.commitAuthor || null;
+    const commitDate = input.commitDate ? new Date(input.commitDate) : null;
+
+    const carryoverInfrastructure = triggeredBy === 'webhook' && previousDeployment
+      ? previousDeployment.infrastructure && typeof previousDeployment.infrastructure.toObject === 'function'
+        ? previousDeployment.infrastructure.toObject()
+        : previousDeployment.infrastructure
+      : {};
+
+    const carryoverMetadata = triggeredBy === 'webhook' && previousDeployment
+      ? previousDeployment.metadata || {}
+      : {};
 
     const deployment = new Deployment({
       ...(projectId && { projectId }),
@@ -248,20 +268,29 @@ class DeploymentEngineService {
       phase: 'queued',
       triggeredBy,
       webhookId,
+      commitHash,
+      commitShortHash,
+      commitMessage,
+      commitAuthor,
+      commitDate,
+      previousDeploymentId,
       startedAt: new Date(),
       infrastructure: {
-        provider: target.type || 'local',
-        targetType: target.type || 'local',
-        region: target.awsRegion || process.env.AWS_REGION || null,
-        target,
-        ecr: {},
-        ec2: {},
-        container: {},
+        provider: carryoverInfrastructure.provider || target.type || 'local',
+        targetType: carryoverInfrastructure.targetType || target.type || 'local',
+        region: carryoverInfrastructure.region || target.awsRegion || process.env.AWS_REGION || null,
+        target: carryoverInfrastructure.target || target,
+        ecr: carryoverInfrastructure.ecr || {},
+        ec2: carryoverInfrastructure.ec2 || {},
+        container: carryoverInfrastructure.container || {},
         deployState: 'queued',
       },
       metadata: {
-        target,
+        ...carryoverMetadata,
+        target: carryoverInfrastructure.target || target,
         queueState: 'queued',
+        ...(versionDetails ? { version: versionDetails } : {}),
+        ...(webhookPayload ? { webhook: webhookPayload } : {}),
       },
     });
 
@@ -836,12 +865,16 @@ class DeploymentEngineService {
     const target = this.normalizeTarget(metadata.target || {});
     const containerName = metadata.containerName;
     const imageName = metadata.imageName;
+    const triggeredBy = deployment.triggeredBy;
 
-    if (containerName) {
+    // For webhook redeploys, skip container/image cleanup as we reuse infrastructure
+    const skipInfrastructureCleanup = triggeredBy === 'webhook';
+
+    if (containerName && !skipInfrastructureCleanup) {
       await dockerService.removeContainer(containerName, target.type === 'ssh' ? target : null).catch(() => {});
     }
 
-    if (imageName) {
+    if (imageName && !skipInfrastructureCleanup) {
       await dockerService.removeImage(imageName, target.type === 'ssh' ? target : null).catch(() => {});
     }
 
@@ -853,11 +886,16 @@ class DeploymentEngineService {
       this.releasePort(hostPort);
     }
 
-    this.emitLog(io, deployment, 'system', 'warn', 'Failed deployment cleaned up', {
-      containerName,
-      imageName,
-      hostPort,
-    });
+    const cleanupData = {
+      hostPort: hostPort || null,
+    };
+
+    // Only include container/image in log if they exist
+    if (containerName) cleanupData.containerName = containerName;
+    if (imageName) cleanupData.imageName = imageName;
+    if (skipInfrastructureCleanup) cleanupData.infrastructureReused = 'webhook redeploy';
+
+    this.emitLog(io, deployment, 'system', 'warn', 'Failed deployment cleaned up', cleanupData);
   }
 
   async getDeploymentDetails(deploymentId) {
@@ -1014,6 +1052,44 @@ class DeploymentEngineService {
     const target = this.normalizeTarget(latestDeployment?.metadata?.target || {});
     const branch = payload?.ref ? payload.ref.replace('refs/heads/', '') : (repository.default_branch || 'main');
 
+    if (payload?.deleted) {
+      return {
+        success: true,
+        skipped: true,
+        reason: 'Branch deletion webhook ignored',
+        branch,
+      };
+    }
+
+    if (branch !== 'main') {
+      return {
+        success: true,
+        skipped: true,
+        reason: `Push to branch ${branch} ignored. Auto-redeploy is enabled only for main.`,
+        branch,
+      };
+    }
+
+    const deploymentCount = await Deployment.countDocuments({ projectId: project._id });
+    const headCommit = payload?.head_commit || {};
+    const commitHash = payload?.after || headCommit.id || null;
+    const commitAuthor = headCommit?.author?.name || payload?.pusher?.name || null;
+    const commitDate = headCommit?.timestamp || new Date().toISOString();
+
+    const versionDetails = {
+      sequence: deploymentCount + 1,
+      deploymentVersion: `v${deploymentCount + 1}`,
+      branch,
+      commitHash,
+      previousCommitHash: payload?.before || null,
+      compareUrl: payload?.compare || null,
+      commitMessage: headCommit?.message || null,
+      commitAuthor,
+      pusher: payload?.pusher?.name || null,
+      pushedAt: commitDate,
+      source: 'github-webhook',
+    };
+
     return this.startDeployment({
       projectId: project._id,
       userId: project.userId,
@@ -1024,6 +1100,19 @@ class DeploymentEngineService {
       target,
       triggeredBy: 'webhook',
       webhookId: project.githubWebhookId,
+      previousDeploymentId: latestDeployment?._id || null,
+      commitHash,
+      commitShortHash: commitHash ? String(commitHash).slice(0, 7) : null,
+      commitMessage: headCommit?.message || null,
+      commitAuthor,
+      commitDate,
+      versionDetails,
+      webhookPayload: {
+        event: 'push',
+        deliveryId: requestContext.deliveryId || null,
+        branch,
+        ref: payload?.ref || null,
+      },
     }, io);
   }
 

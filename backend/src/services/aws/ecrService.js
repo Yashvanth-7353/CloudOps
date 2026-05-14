@@ -48,6 +48,39 @@ class ECRService {
   }
 
   /**
+   * Get existing repository or create if not exists
+   * @param {string} repositoryName - Repository name
+   * @param {Object} options - Optional parameters
+   * @returns {Promise<Object>} Repository details
+   */
+  async getOrCreateRepository(repositoryName, options = {}) {
+    try {
+      const {
+        tagMutability = 'MUTABLE',
+        imageScanOnPush = true,
+      } = options;
+
+      const repos = await this.listRepositories();
+      const existing = repos.find((r) => r.repositoryName === repositoryName);
+
+      if (existing) {
+        return {
+          repositoryArn: existing.repositoryArn,
+          repositoryUri: existing.repositoryUri,
+          repositoryName: existing.repositoryName,
+          createdAt: existing.createdAt,
+          message: 'Repository already exists, reusing',
+          isNew: false,
+        };
+      }
+
+      return this.createRepository(repositoryName, { tagMutability, imageScanOnPush });
+    } catch (error) {
+      throw new Error(`Failed to get or create ECR repository: ${error.message}`);
+    }
+  }
+
+  /**
    * Create a new ECR repository
    * @param {string} repositoryName - Repository name
    * @param {Object} options - Optional parameters
@@ -77,6 +110,7 @@ class ECRService {
         repositoryName: response.repository.repositoryName,
         createdAt: response.repository.createdAt,
         message: 'Repository created successfully',
+        isNew: true,
       };
     } catch (error) {
       throw new Error(`Failed to create ECR repository: ${error.message}`);

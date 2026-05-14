@@ -251,7 +251,18 @@ const handleWebhook = async (req, res) => {
             return res.status(200).json({ success: true, message: 'Webhook acknowledged' });
         }
 
-        const result = await deploymentEngine.handleWebhook(req.body, req.app.get('io'));
+        const result = await deploymentEngine.handleWebhook(req.body, req.app.get('io'), {
+            deliveryId: req.headers['x-github-delivery'] || null,
+        });
+
+        if (result?.skipped) {
+            return res.status(200).json({
+                success: true,
+                message: result.reason || 'Webhook acknowledged and ignored',
+                ...result,
+            });
+        }
+
         return res.status(202).json({ success: true, message: 'Webhook accepted and redeployment queued', ...result });
     } catch (error) {
         console.error('Webhook handling error:', error);

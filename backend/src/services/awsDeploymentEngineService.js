@@ -28,25 +28,24 @@ class AWSDeploymentEngineService {
       const authToken = await ecrService.getAuthorizationToken();
       emitLog(io, deployment, 'aws', 'info', 'ECR authorization obtained');
 
-      // Create or get repository
+      // Get or create repository (reuse existing for webhook redeploys)
       const repositoryName = `cloudops-${deployment.repositoryName}`.toLowerCase().substring(0, 256);
       
       let repository;
       try {
-        repository = await ecrService.createRepository(repositoryName);
-        emitLog(io, deployment, 'aws', 'success', 'ECR repository created', {
-          repositoryUri: repository.repositoryUri,
-        });
-      } catch (error) {
-        if (error.message.includes('RepositoryAlreadyExistsException')) {
-          const repos = await ecrService.listRepositories();
-          repository = repos.find(r => r.repositoryName === repositoryName);
-          emitLog(io, deployment, 'aws', 'info', 'Using existing ECR repository', {
+        repository = await ecrService.getOrCreateRepository(repositoryName);
+        if (repository.isNew) {
+          emitLog(io, deployment, 'aws', 'success', 'ECR repository created', {
             repositoryUri: repository.repositoryUri,
           });
         } else {
-          throw error;
+          emitLog(io, deployment, 'aws', 'info', 'Using existing ECR repository, redeploying', {
+            repositoryUri: repository.repositoryUri,
+          });
         }
+      } catch (error) {
+        emitLog(io, deployment, 'aws', 'error', `Failed to get or create ECR repository: ${error.message}`);
+        throw error;
       }
 
       const ecrUri = repository.repositoryUri;
