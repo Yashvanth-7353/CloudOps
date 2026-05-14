@@ -293,7 +293,8 @@ export default function DeploymentDetailPage() {
 
     try {
       setBringingDown(true);
-      setBringDownConfirmOpen(false);
+      setBringDownConfirmOpen(false); 
+      
 
       await deploymentService.terminateAwsDeployment(deploymentInstanceId, {
         repositoryName: effectiveEcrRepositoryName,
