@@ -4,23 +4,31 @@ import CloudIllustration from '@/components/auth/CloudIllustration';
 import LoginCard from '@/components/auth/LoginCard';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/app/providers/auth-provider';
+
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { login } = useAuth();
+  const { login, isAuthenticated, loading } = useAuth();
 
   useEffect(() => {
     const token = searchParams.get('token');
     if (token) {
       login({ token }).then((success) => {
         if (success) {
-          navigate('/dashboard');
+          navigate('/');
         } else {
           localStorage.removeItem('cloudops_auth_token');
         }
       });
     }
   }, [searchParams, login, navigate]);
+
+  useEffect(() => {
+    const token = searchParams.get('token');
+    if (!loading && isAuthenticated && !token) {
+      navigate('/');
+    }
+  }, [isAuthenticated, loading, navigate, searchParams]);
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-[#06070f] to-[#0b1020] text-white">

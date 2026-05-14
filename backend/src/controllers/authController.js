@@ -1,5 +1,6 @@
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 
 const githubAuthRedirect = (req, res) => {
     const state = Math.random().toString(36).substring(7);
@@ -39,13 +40,34 @@ const githubCallbackHandler = async (req, res) => {
         });
 
         const user = userResponse.data;
-        console.log(user.email);
+
+        // Persist or update GitHub-authenticated user in MongoDB.
+        const persistedUser = await User.findOneAndUpdate(
+            { githubId: String(user.id) },
+            {
+                $set: {
+                    username: user.login,
+                    email: user.email || null,
+                    avatar: user.avatar_url || null,
+                    githubAccessToken: accessToken,
+                    lastLoginAt: new Date(),
+                },
+                $setOnInsert: {
+                    githubId: String(user.id),
+                },
+            },
+            {
+                new: true,
+                upsert: true,
+            }
+        );
+
         const jwtToken = jwt.sign(
             {
-                id: user.id,
-                username: user.login,
-                email: user.email,
-                avatar: user.avatar_url,
+                id: persistedUser.githubId,
+                username: persistedUser.username,
+                email: persistedUser.email,
+                avatar: persistedUser.avatar,
                 githubToken: accessToken,
             },
             process.env.JWT_SECRET,

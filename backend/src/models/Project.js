@@ -7,6 +7,11 @@ const projectSchema = new mongoose.Schema({
   repositoryUrl: { type: String, required: true },
   isPrivate: { type: Boolean, default: false },
   description: String,
+  environmentVariables: [{
+    key: String,
+    value: String,
+    encrypted: { type: Boolean, default: false },
+  }],
   status: { 
     type: String, 
     enum: ['connected', 'deploying', 'active', 'failed'], 

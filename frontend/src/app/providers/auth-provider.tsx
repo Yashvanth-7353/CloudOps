@@ -56,6 +56,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         // Regular login
         const response = await authService.login(credentials.email, credentials.password);
+        if (!response.data?.token) {
+          localStorage.removeItem('cloudops_auth_token');
+          setIsAuthenticated(false);
+          setUser(null);
+          return false;
+        }
+
         localStorage.setItem('cloudops_auth_token', response.data.token);
         setIsAuthenticated(true);
         setUser(response.data.user);

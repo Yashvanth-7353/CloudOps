@@ -49,13 +49,15 @@ app.use(express.json({
 }));
 
 // --- MONGODB CONNECTION ---
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('✅ MongoDB connected successfully!'))
-    .catch((err) => {
+const connectMongo = async () => {
+    try {
+        await mongoose.connect(process.env.MONGODB_URI);
+        console.log('✅ MongoDB connected successfully!');
+    } catch (err) {
         console.error('❌ MongoDB connection error:');
 
         // More actionable hints for common failures
-        const errmsg = err && (err.message || (err.errorResponse && err.errorResponse.errmsg)) || '';
+        const errmsg = (err && (err.message || (err.errorResponse && err.errorResponse.errmsg))) || '';
         if (/Authentication failed|bad auth/i.test(errmsg) || (err && err.codeName === 'AtlasError')) {
             console.error('Authentication failed: check MongoDB username/password in backend/.env.');
             console.error('If your password has special characters, URL-encode it (e.g. replace @ with %40).');
@@ -64,11 +66,17 @@ mongoose.connect(process.env.MONGODB_URI)
             console.error('DNS/SRV lookup failed: try using the non-SRV connection string or check DNS settings.');
         } else if (/ECONNREFUSED|connection refused/i.test(errmsg)) {
             console.error('Connection refused: confirm network access, firewall rules, and Atlas IP whitelist.');
+        } else if (/IP|whitelist|replica set|No primary/i.test(errmsg)) {
+            console.error('Atlas access issue: make sure your current IP is whitelisted in MongoDB Atlas.');
+            console.error('If you are using a VPN, hotspot, or changing IP frequently, add a broader Atlas access rule for development.');
         }
 
         console.error(err);
-        process.exit(1);
-    });
+        console.warn('⚠️ Continuing without a MongoDB connection. Routes that depend on the database may still fail until Atlas is reachable.');
+    }
+};
+
+connectMongo();
 
 // --- 3. ROUTES ---
 const authRoutes = require('./src/routes/authRoutes');
@@ -78,6 +86,7 @@ const userRoutes = require('./src/routes/userRoutes');
 const deployRoutes = require('./src/routes/deployRoutes');
 const deploymentRoutes = require('./src/routes/deploymentRoutes');
 const awsRoutes = require('./src/routes/awsRoutes');
+const projectRoutes = require('./src/routes/projectRoutes');
 
 app.use('/auth', authRoutes);
 app.use('/api/auth', authRoutes);
@@ -87,6 +96,7 @@ app.use('/api', apiRoutes);
 app.use('/api', deployRoutes);
 app.use('/api/deploy', deploymentRoutes);
 app.use('/api/aws', awsRoutes); // AWS integration routes
+app.use('/api/projects', projectRoutes);
 
 // --- 4. START SERVER ---
 // CRITICAL: We use server.listen() here, NOT app.listen()!
