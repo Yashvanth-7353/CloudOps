@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, Github, ChevronDown, Sun, Moon } from 'lucide-react';
+import { X, Github, ChevronDown, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useToast } from '@/components/ui/ToastProvider';
 import { useAuth } from '@/app/providers/auth-provider';
@@ -38,6 +38,7 @@ const Navbar: React.FC = () => {
   const { isAuthenticated, logout, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const showMobileMenuToggle = location.pathname !== '/';
 
   const userName = user?.username || user?.name || user?.login || 'User';
   const userInitial = userName?.[0]?.toUpperCase() || 'U';
@@ -263,39 +264,44 @@ const Navbar: React.FC = () => {
                 </motion.a>
               )}
 
-              {/* Mobile Menu Toggle */}
-              <motion.button
-                className="btn-menu md:hidden"
-                onClick={() => setIsOpen(!isOpen)}
-                aria-label={isOpen ? 'Close navigation menu' : 'Open navigation menu'}
-                aria-expanded={isOpen}
-                aria-controls="mobile-navigation-menu"
-                whileTap={{ scale: 0.9 }}
-              >
-                <AnimatePresence mode="wait">
-                  {isOpen ? (
-                    <motion.div
-                      key="close"
-                      initial={{ rotate: -90, opacity: 0 }}
-                      animate={{ rotate: 0, opacity: 1 }}
-                      exit={{ rotate: 90, opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <X size={24} />
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="open"
-                      initial={{ rotate: 90, opacity: 0 }}
-                      animate={{ rotate: 0, opacity: 1 }}
-                      exit={{ rotate: -90, opacity: 0 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <Menu size={24} />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.button>
+              {/* Mobile Menu Toggle (hidden on home page) */}
+              {showMobileMenuToggle && (
+                <motion.button
+                  className="btn-menu btn-menu-mobile md:hidden"
+                  onClick={() => setIsOpen(!isOpen)}
+                  aria-label={isOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                  aria-expanded={isOpen}
+                  aria-controls="mobile-navigation-menu"
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <AnimatePresence mode="wait">
+                    {isOpen ? (
+                      <motion.div
+                        key="close"
+                        initial={{ rotate: -90, opacity: 0 }}
+                        animate={{ rotate: 0, opacity: 1 }}
+                        exit={{ rotate: 90, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <X size={20} className="text-[#25D7FF]" />
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="open"
+                        initial={{ rotate: 90, opacity: 0 }}
+                        animate={{ rotate: 0, opacity: 1 }}
+                        exit={{ rotate: -90, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="menu-bars"
+                      >
+                        <span />
+                        <span />
+                        <span />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.button>
+              )}
             </div>
           </div>
         </div>
@@ -303,7 +309,7 @@ const Navbar: React.FC = () => {
 
       {/* Mobile Menu */}
       <AnimatePresence>
-        {isOpen && (
+        {showMobileMenuToggle && isOpen && (
           <motion.div
             id="mobile-navigation-menu"
             className="mobile-menu"

@@ -21,7 +21,9 @@ const SettingsPage = lazy(() => import('@/pages/Settings'));
 const DeploymentsPage = lazy(() => import('@/pages/Deployments'));
 const DeploymentDetailPage = lazy(() => import('@/pages/DeploymentDetail'));
 const LiveProjectsPage = lazy(() => import('@/pages/LiveProjects'));
+const EnvironmentVariablesPage = lazy(() => import('@/pages/EnvironmentVariables'));
 const DocsPage = lazy(() => import('@/pages/Docs'));
+const DeploymentPipelineShowcase = lazy(() => import('@/pages/DeploymentPipelineShowcase'));
 
 const pageVariants = {
   initial: { opacity: 0, y: 18, scale: 0.99 },
@@ -68,6 +70,7 @@ function Routes() {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/demo/deployment-pipeline" element={<DeploymentPipelineShowcase />} />
 
             <Route element={<ProtectedRoutes />}>
               <Route path="/dashboard" element={<DashboardPage />} />
@@ -78,6 +81,7 @@ function Routes() {
               <Route path="/deployment-logs" element={<DeploymentsPage />} />
               <Route path="/deployments/:id" element={<DeploymentDetailPage />} />
               <Route path="/live-projects" element={<LiveProjectsPage />} />
+              <Route path="/environment-variables" element={<EnvironmentVariablesPage />} />
               <Route path="/deploy/:owner/:repo" element={<DeployProject />} />
             </Route>
 

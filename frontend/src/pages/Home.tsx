@@ -3,8 +3,6 @@ import { Hero, Features } from '@/components/sections';
 import { Layout } from '@/components/layout';
 import { ArrowRight } from 'lucide-react';
 import { useAuth } from '@/app/providers/auth-provider';
-import CloudIllustration from '@/components/auth/CloudIllustration';
-import LoginCard from '@/components/auth/LoginCard';
 
 /**
  * Home Page
