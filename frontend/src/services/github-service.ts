@@ -15,8 +15,38 @@ export type GitHubRepository = {
   defaultBranch: string;
 };
 
+export type ConnectedRepository = {
+  id: string;
+  name: string;
+  fullName: string;
+  repositoryUrl: string;
+  isPrivate: boolean;
+  description: string;
+  status: 'connected' | 'deploying' | 'active' | 'failed';
+  createdAt: string;
+  updatedAt: string;
+  webhookId: string;
+  lastDeployedAt?: string;
+};
+
 export const githubService = {
+  // Get repositories from GitHub API (user's all repos)
   listRepositories: () => apiClient.get<{ repositories: GitHubRepository[] }>(ENDPOINTS.GITHUB.REPOSITORIES),
+
+  // Get connected repositories from MongoDB
+  getConnectedRepositories: async () => {
+    try {
+      const response = await axiosClient.get<{ 
+        success: boolean;
+        count: number;
+        repositories: ConnectedRepository[] 
+      }>('/api/github/connected');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch connected repositories:', error);
+      throw new Error(error.response?.data?.error || 'Failed to fetch connected repositories');
+    }
+  },
 
   connectRepository: async (repoData: {
     repositoryName: string;
@@ -34,7 +64,6 @@ export const githubService = {
     }
   },
 
-  // Add this inside the githubService object
   removeRepository: async (owner: string, repo: string) => {
     try {
       const response = await axiosClient.delete(`/api/github/disconnect/${owner}/${repo}`);

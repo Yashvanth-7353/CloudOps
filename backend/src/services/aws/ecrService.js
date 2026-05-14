@@ -256,6 +256,42 @@ class ECRService {
       throw new Error(`Failed to get repository URI: ${error.message}`);
     }
   }
+
+  /**
+   * Generate Docker login command from authorization token
+   * Works on Windows by properly encoding credentials for PowerShell
+   * @param {Object} authTokenData - Authorization token data from getAuthorizationToken()
+   * @returns {string} Docker login command
+   */
+  getLoginCommand(authTokenData) {
+    try {
+      const { authorizationToken, proxyEndpoint } = authTokenData;
+
+      if (!authorizationToken || !proxyEndpoint) {
+        throw new Error('Invalid authorization token data');
+      }
+
+      // Extract username and password from authorization token
+      // authorizationToken is base64 encoded "AWS:<password>"
+      const decoded = Buffer.from(authorizationToken, 'base64').toString('utf-8');
+      const [username, password] = decoded.split(':');
+
+      if (!username || !password) {
+        throw new Error('Failed to decode authorization token');
+      }
+
+      // Extract registry URL from proxyEndpoint
+      const registryUrl = proxyEndpoint.replace(/^https?:\/\//, '');
+
+      // For Windows: Use PowerShell to handle special characters in password
+      // ConvertTo-SecureString with -AsPlainText pipes to docker login
+      const loginCommand = `powershell -Command "Write-Host -NoNewline '${password}' | docker login --username ${username} --password-stdin ${registryUrl}"`;
+
+      return loginCommand;
+    } catch (error) {
+      throw new Error(`Failed to generate login command: ${error.message}`);
+    }
+  }
 }
 
 module.exports = new ECRService();

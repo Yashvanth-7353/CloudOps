@@ -54,6 +54,17 @@ class DockerService {
 
             child.on('error', (error) => {
                 if (timeoutHandle) clearTimeout(timeoutHandle);
+                
+                // Handle Docker daemon not running error
+                const errorMsg = error.message || '';
+                if (errorMsg.includes('pipe') || errorMsg.includes('ENOENT') || errorMsg.includes('dockerDesktopLinuxEngine')) {
+                    const dockerError = new Error('Docker daemon is not running. Please start Docker Desktop and try again.');
+                    dockerError.code = error.code;
+                    dockerError.stderr = errorMsg;
+                    reject(dockerError);
+                    return;
+                }
+                
                 reject(error);
             });
 
@@ -66,6 +77,17 @@ class DockerService {
                 }
 
                 if (code !== 0) {
+                    // Check for Docker daemon errors
+                    const stderrLower = stderr.toLowerCase();
+                    if (stderrLower.includes('pipe') || stderrLower.includes('dockerdesktoplinuxengine') || stderrLower.includes('failed to connect')) {
+                        const error = new Error('🐳 Docker daemon is not running. Please start Docker Desktop on Windows and try again.');
+                        error.code = code;
+                        error.stdout = stdout;
+                        error.stderr = stderr;
+                        reject(error);
+                        return;
+                    }
+                    
                     const error = new Error(stderr.trim() || stdout.trim() || `Command failed: ${command}`);
                     error.code = code;
                     error.stdout = stdout;
@@ -127,6 +149,50 @@ class DockerService {
         return this.runCommand('scp', scpArgs, options);
     }
 
+    async isDockerAvailable(target = null) {
+        try {
+            if (target && target.type === 'ssh') {
+                await this.runRemoteCommand(target, 'docker --version');
+                return { available: true, local: false };
+            }
+
+            await this.runCommand('docker', ['--version']);
+            return { available: true, local: true };
+        } catch (error) {
+            const message = (error.stderr || error.message || '').toLowerCase();
+            
+            if (message.includes('dockerdesktoplinuxengine') || message.includes('pipe') || message.includes('enoent')) {
+                return {
+                    available: false,
+                    local: true,
+                    reason: '🐳 Docker daemon is not running. Please start Docker Desktop on Windows.',
+                };
+            }
+            
+            if (message.includes('not found') || message.includes('command not found')) {
+                return {
+                    available: false,
+                    local: true,
+                    reason: '❌ Docker is not installed or not in PATH. Please install Docker.',
+                };
+            }
+            
+            if (message.includes('permission denied')) {
+                return {
+                    available: false,
+                    local: true,
+                    reason: '❌ Permission denied accessing Docker. Check your user permissions.',
+                };
+            }
+            
+            return {
+                available: false,
+                local: target ? false : true,
+                reason: `❌ Docker check failed: ${error.message}`,
+            };
+        }
+    }
+
     async buildImage(input, maybeRepoPath) {
         if (typeof input === 'string') {
             const repoName = input;
@@ -152,6 +218,14 @@ class DockerService {
 
         if (!fs.existsSync(dockerfilePath)) {
             throw new Error('No Dockerfile found in build context.');
+        }
+
+        // Check Docker availability before attempting build
+        const dockerCheck = await this.isDockerAvailable(target);
+        if (!dockerCheck.available) {
+            throw new Error(
+                dockerCheck.reason || 'Docker is not available. Cannot proceed with build.'
+            );
         }
 
         console.log(`🐳 Starting Docker build for: ${imageName}...`);
@@ -180,6 +254,14 @@ class DockerService {
             onStdout = null,
             onStderr = null,
         } = input;
+
+        // Check Docker availability before attempting run
+        const dockerCheck = await this.isDockerAvailable(target);
+        if (!dockerCheck.available) {
+            throw new Error(
+                dockerCheck.reason || 'Docker is not available. Cannot proceed with container execution.'
+            );
+        }
 
         const envEntries = Object.entries(env).filter(([, value]) => value !== undefined && value !== null && value !== '');
         const labelEntries = Object.entries(labels).filter(([, value]) => value !== undefined && value !== null && value !== '');

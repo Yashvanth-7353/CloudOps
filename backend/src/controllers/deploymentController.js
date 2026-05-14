@@ -121,25 +121,12 @@ const initDeploy = async (req, res) => {
 
 const saveDeploymentFiles = async (req, res) => {
     try {
-        const { clonePath, envContent, envPath, dockerfileContent } = req.body;
-
-        if (!clonePath) return res.status(400).json({ error: 'Clone path is required.' });
-
-        // 1. Save .env file if the user provided one
-        if (envContent && envContent.trim() !== '') {
-            const finalEnvPath = envPath || '.env'; 
-            await gitService.writeFile(clonePath, finalEnvPath, envContent);
-            console.log(`✅ Saved .env to ${finalEnvPath}`);
-        }
-
-        // 2. Save Dockerfile if it was missing and the user provided one
-        if (dockerfileContent && dockerfileContent.trim() !== '') {
-            await gitService.writeFile(clonePath, 'Dockerfile', dockerfileContent);
-            console.log(`✅ Saved new Dockerfile`);
-        }
-
-        res.status(200).json({ success: true, message: 'Files configured! Ready for Docker build.' });
-
+        // This endpoint is deprecated - users should commit files to their repository instead
+        return res.status(200).json({ 
+            success: true, 
+            message: 'Please commit your Dockerfile to your Git repository. Deployment will use the Dockerfile from your repo.',
+            note: 'User-provided files during preview are no longer supported. Ensure your repo has a Dockerfile at the root.'
+        });
     } catch (error) {
         console.error('Save Files Error:', error);
         res.status(500).json({ error: 'Failed to save configuration files.' });
@@ -272,10 +259,131 @@ const handleWebhook = async (req, res) => {
     }
 };
 
+/**
+ * Start AWS EC2 deployment
+ * POST /api/deploy/aws-ec2
+ * Body: {
+ *   repositoryUrl: string,
+ *   repositoryName?: string,
+ *   branch?: string,
+ *   instanceType?: string (default: t3.micro),
+ *   keyName?: string,
+ *   securityGroupIds?: string[],
+ *   environmentVariables?: object
+ * }
+ */
+const startAWSEC2Deployment = async (req, res) => {
+  const io = req.app.get('io');
+
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const {
+      repositoryUrl,
+      repositoryName,
+      repositoryOwner,
+      branch = 'main',
+      instanceType = 't3.micro',
+      keyName,
+      securityGroupIds = [],
+      environmentVariables = {},
+    } = req.body;
+
+    if (!repositoryUrl || !repositoryName) {
+      return res.status(400).json({
+        success: false,
+        error: 'repositoryUrl and repositoryName are required for AWS EC2 deployment',
+      });
+    }
+
+    // Decode JWT to get userId
+    let userId = 'anonymous';
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userId = decoded.id || decoded.githubId || 'anonymous';
+      } catch (err) {
+        console.warn('Could not decode token:', err.message);
+      }
+    }
+
+    console.log(`\n${'═'.repeat(60)}`);
+    console.log(`☁️  AWS EC2 DEPLOYMENT REQUEST`);
+    console.log(`${'═'.repeat(60)}`);
+    console.log(`📦 Repository: ${repositoryUrl}`);
+    console.log(`🌿 Branch: ${branch}`);
+    console.log(`📍 Instance Type: ${instanceType}`);
+    console.log(`🔑 Key Name: ${keyName || 'default'}`);
+    console.log(`👤 User ID: ${userId}`);
+    console.log(`${'═'.repeat(60)}\n`);
+
+    // Try to find existing project in MongoDB
+    let project = null;
+    if (repositoryOwner) {
+      project = await Project.findOne({
+        repositoryName,
+        repositoryOwner,
+        userId,
+      });
+    } else {
+      // Try to extract owner from URL: https://github.com/owner/repo.git
+      const urlMatch = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (urlMatch) {
+        const [, owner, repo] = urlMatch;
+        project = await Project.findOne({
+          repositoryName: repo,
+          repositoryOwner: owner,
+          userId,
+        });
+      }
+    }
+
+    // If no project found, it's okay - we can still deploy
+    // But we'll log it
+    if (!project) {
+      console.log(`⚠️  Project not found in database for ${repositoryName}. Creating temporary deployment without project link.`);
+    }
+
+    const result = await deploymentEngine.startDeployment({
+      projectId: project?._id || null,  // Can be null for ad-hoc deployments
+      userId,
+      repositoryUrl,
+      repositoryName,
+      repositoryOwner: repositoryOwner || 'unknown',
+      branch,
+      environmentVariables,
+      target: {
+        type: 'aws',
+        awsRegion: process.env.AWS_REGION || 'ap-south-1',
+        instanceType,
+        keyName: keyName || process.env.AWS_EC2_KEY_NAME,
+        securityGroupIds,
+      },
+      triggeredBy: 'manual',
+    }, io);
+
+    console.log(`✅ AWS EC2 deployment initiated: ${result.deploymentId}`);
+
+    return res.status(202).json({
+      success: true,
+      message: 'AWS EC2 deployment initiated',
+      deploymentId: result.deploymentId,
+      status: result.status,
+    });
+
+  } catch (error) {
+    console.error('❌ AWS EC2 deployment error:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to start AWS EC2 deployment',
+    });
+  }
+};
+
 module.exports = {
     initDeploy,
     saveDeploymentFiles,
     startBuild,
+    startAWSEC2Deployment,
     getDeploymentStatus,
     getDeploymentLogs,
     stopDeployment,

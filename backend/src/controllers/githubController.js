@@ -161,9 +161,57 @@ const removeRepository = async (req, res) => {
     }
 };
 
+/**
+ * Get all connected repositories for the current user from MongoDB
+ * GET /api/github/connected
+ */
+const getConnectedRepositories = async (req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded.id;
+
+        // Query MongoDB for all projects connected by this user
+        const projects = await Project.find({ userId }).sort({ createdAt: -1 });
+
+        // Map to frontend format
+        const connectedRepos = projects.map(project => ({
+            id: project._id.toString(),
+            name: project.repositoryName,
+            fullName: `${project.repositoryOwner}/${project.repositoryName}`,
+            repositoryUrl: project.repositoryUrl,
+            isPrivate: project.isPrivate,
+            description: project.description,
+            status: project.status,
+            createdAt: project.createdAt,
+            updatedAt: project.updatedAt,
+            webhookId: project.githubWebhookId,
+            lastDeployedAt: project.lastDeployedAt,
+        }));
+
+        console.log(`✅ Retrieved ${connectedRepos.length} connected repositories for user ${userId}`);
+
+        res.status(200).json({
+            success: true,
+            count: connectedRepos.length,
+            repositories: connectedRepos,
+        });
+
+    } catch (error) {
+        console.error('Failed to fetch connected repositories:', error);
+        res.status(500).json({ error: error.message || 'Unable to fetch connected repositories' });
+    }
+};
+
 // Update your module.exports at the bottom to include it:
 module.exports = {
     getRepositories,
     connectRepository,
-    removeRepository, // <-- Added this
+    removeRepository,
+    getConnectedRepositories,
 };

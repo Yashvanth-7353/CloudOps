@@ -12,7 +12,10 @@ router.post('/save-files', deploymentController.saveDeploymentFiles);
 router.post('/start', deploymentController.startBuild);
 router.post('/start-build', deploymentController.startBuild);
 
-// 4. Deployment lifecycle APIs
+// 4. AWS EC2 Deployment
+router.post('/aws-ec2', deploymentController.startAWSEC2Deployment);
+
+// 5. Deployment lifecycle APIs
 router.get('/:deploymentId/status', deploymentController.getDeploymentStatus);
 router.get('/:deploymentId/logs', deploymentController.getDeploymentLogs);
 router.post('/:deploymentId/stop', deploymentController.stopDeployment);

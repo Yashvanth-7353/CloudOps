@@ -10,7 +10,7 @@ const DeploymentSchema = new mongoose.Schema(
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Project',
-      required: true,
+      required: false,  // Can be null for ad-hoc deployments without a connected project
       index: true,
     },
     userId: {
@@ -26,7 +26,7 @@ const DeploymentSchema = new mongoose.Schema(
     },
     phase: {
       type: String,
-      enum: ['preparation', 'queued', 'clone', 'framework_detection', 'dockerfile_generation', 'docker_build', 'container_start', 'nginx_setup', 'push_ecr', 'ecs_deploy', 'dns_setup', 'cleanup', 'complete'],
+      enum: ['preparation', 'queued', 'clone', 'framework_detection', 'dockerfile_generation', 'docker_build', 'container_start', 'nginx_setup', 'push_ecr', 'ec2_launch', 'ecs_deploy', 'dns_setup', 'cleanup', 'complete'],
       default: 'preparation',
     },
     // Git information
@@ -127,11 +127,11 @@ const DeploymentSchema = new mongoose.Schema(
       timestamp: Date,
       source: {
         type: String,
-        enum: ['system', 'git', 'framework', 'docker', 'ecr', 'ecs', 'route53', 'app'],
+        enum: ['system', 'git', 'framework', 'docker', 'aws', 'ecr', 'ecs', 'route53', 'app'],
       },
       level: {
         type: String,
-        enum: ['debug', 'info', 'warn', 'error'],
+        enum: ['debug', 'info', 'warn', 'error', 'success'],
       },
       message: String,
       data: mongoose.Schema.Types.Mixed,

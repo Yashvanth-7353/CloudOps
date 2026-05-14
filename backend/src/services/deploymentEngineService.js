@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const fs = require('fs/promises');
+const fsSyncModule = require('fs');
 const net = require('net');
 const os = require('os');
 const path = require('path');
@@ -7,17 +8,17 @@ const path = require('path');
 const Deployment = require('../models/Deployment');
 const Project = require('../models/Project');
 const dockerService = require('./dockerService');
-const dockerfileGenerator = require('./dockerfileGenerator');
 const frameworkDetector = require('./frameworkDetector');
 const gitService = require('./gitService');
+const awsDeploymentEngine = require('./awsDeploymentEngineService');
 
 class DeploymentEngineService {
   constructor() {
     this.queue = [];
     this.processing = false;
     this.allocatedPorts = new Set();
-    this.portStart = Number(process.env.DEPLOYMENT_PORT_START || 3001);
-    this.portEnd = Number(process.env.DEPLOYMENT_PORT_END || 3999);
+    this.portStart = Number(process.env.DEPLOYMENT_PORT_START || 4002);
+    this.portEnd = Number(process.env.DEPLOYMENT_PORT_END || 4999);
   }
 
   normalizeEnvironmentVariables(environmentVariables = {}) {
@@ -40,6 +41,17 @@ class DeploymentEngineService {
   normalizeTarget(target = {}) {
     if (!target || typeof target !== 'object') {
       return { type: 'local' };
+    }
+
+    if (target.type === 'aws' || target.type === 'ec2' || target.awsRegion) {
+      return {
+        type: 'aws',
+        awsRegion: target.awsRegion || process.env.AWS_REGION || 'ap-south-1',
+        instanceType: target.instanceType || 't3.micro',
+        keyName: target.keyName || process.env.AWS_EC2_KEY_NAME,
+        securityGroupIds: target.securityGroupIds || [],
+        vpcId: target.vpcId || null,
+      };
     }
 
     if (target.type === 'ssh' || target.host || target.user) {
@@ -76,6 +88,23 @@ class DeploymentEngineService {
       status: deployment.status,
       phase: deployment.phase,
     };
+
+    // Print to console with level indicators
+    const timestamp = new Date().toISOString();
+    const prefix = `[${timestamp}] [${source.toUpperCase()}] [${level.toUpperCase()}]`;
+    const logMessage = `${prefix} ${message}`;
+    
+    if (level === 'error') {
+      console.error(`❌ ${logMessage}`, data);
+    } else if (level === 'warn') {
+      console.warn(`⚠️  ${logMessage}`, data);
+    } else if (level === 'success') {
+      console.log(`✅ ${logMessage}`, data);
+    } else if (level === 'debug') {
+      console.log(`🔍 ${logMessage}`, data);
+    } else {
+      console.log(`ℹ️  ${logMessage}`, data);
+    }
 
     if (io && typeof io.to === 'function') {
       io.to(room).emit('deployment-log', payload);
@@ -172,7 +201,7 @@ class DeploymentEngineService {
     const webhookId = input.webhookId || null;
 
     const deployment = new Deployment({
-      projectId: projectId || undefined,
+      ...(projectId && { projectId }),
       userId: userId || String(input.userId || 'anonymous'),
       repositoryUrl,
       repositoryName,
@@ -217,18 +246,24 @@ class DeploymentEngineService {
 
   async processQueue() {
     if (this.processing) {
+      console.log(`📦 Queue already processing, skipping...`);
       return;
     }
 
     this.processing = true;
+    console.log(`🚀 Starting deployment queue processor. Queue length: ${this.queue.length}`);
 
     while (this.queue.length > 0) {
       const job = this.queue.shift();
+      console.log(`📋 Processing deployment: ${job.deploymentId}`);
       // eslint-disable-next-line no-await-in-loop
-      await this.runDeployment(job.deploymentId, job.io);
+      await this.runDeployment(job.deploymentId, job.io).catch((error) => {
+        console.error(`❌ Deployment ${job.deploymentId} failed:`, error.message);
+      });
     }
 
     this.processing = false;
+    console.log(`✅ Deployment queue processor finished`);
   }
 
   buildContainerLabels(deployment, hostPort, containerPort) {
@@ -274,6 +309,7 @@ class DeploymentEngineService {
   }
 
   async detectAndGenerate(deployment, buildDir, io) {
+    // Detect framework for metadata
     deployment.updateStatus('detecting', 'framework_detection');
     await this.saveDeployment(deployment);
     this.emitLog(io, deployment, 'framework', 'info', 'Detecting framework');
@@ -290,29 +326,25 @@ class DeploymentEngineService {
       confidence: detected.confidence,
     });
 
-    deployment.updateStatus('building', 'dockerfile_generation');
-    await this.saveDeployment(deployment);
-    this.emitLog(io, deployment, 'docker', 'info', 'Generating Dockerfile', {
-      framework: deployment.framework,
-    });
-
-    const dockerfileContent = dockerfileGenerator.generateDockerfile(deployment.framework, {
-      port: detected.port || 3000,
-      buildCommand: detected.buildCommand,
-      startCommand: detected.startCommand,
-      envVars: this.buildEnvironmentObject(deployment.environmentVariables),
-    });
-
-    deployment.dockerfile = dockerfileContent;
+    // Check if Dockerfile exists in the cloned repository
     const dockerfilePath = path.join(buildDir, 'Dockerfile');
-    const dockerignorePath = path.join(buildDir, '.dockerignore');
+    const dockerfileExists = fsSyncModule.existsSync(dockerfilePath);
 
-    await dockerfileGenerator.saveDockerfile(dockerfileContent, dockerfilePath);
-    await dockerfileGenerator.saveDockerigno(dockerignorePath);
+    if (!dockerfileExists) {
+      const errorMsg = 'Dockerfile not found in repository. Please commit a Dockerfile to your repository root and try again.';
+      this.emitLog(io, deployment, 'docker', 'error', errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    this.emitLog(io, deployment, 'docker', 'info', 'Found Dockerfile in repository', {
+      dockerfilePath,
+    });
+
+    const dockerfileContent = await fs.readFile(dockerfilePath, 'utf8');
+    deployment.dockerfile = dockerfileContent;
 
     deployment.metadata = deployment.metadata || {};
     deployment.metadata.dockerfilePath = dockerfilePath;
-    deployment.metadata.dockerignorePath = dockerignorePath;
     deployment.metadata.containerPort = detected.port || 3000;
     deployment.metadata.framework = detected.framework;
     deployment.metadata.frameworkVersion = detected.version;
@@ -326,7 +358,6 @@ class DeploymentEngineService {
       containerPort: detected.port || 3000,
       dockerfileContent,
       dockerfilePath,
-      dockerignorePath,
     };
   }
 
@@ -387,14 +418,23 @@ class DeploymentEngineService {
     let deployment = null;
     let buildDir = null;
     let hostPort = null;
+    let startedAt = null;
 
     try {
+      console.log(`\n${'═'.repeat(60)}`);
+      console.log(`🚀 STARTING DEPLOYMENT: ${deploymentId}`);
+      console.log(`${'═'.repeat(60)}\n`);
+
       deployment = await Deployment.findById(deploymentId);
       if (!deployment) {
         throw new Error('Deployment not found');
       }
 
-      const startedAt = Date.now();
+      console.log(`📦 Repository: ${deployment.repositoryName}`);
+      console.log(`🌿 Branch: ${deployment.branch}`);
+      console.log(`📍 Repository URL: ${deployment.repositoryUrl}\n`);
+
+      startedAt = Date.now();
       buildDir = path.join(os.tmpdir(), `cloudops-${deploymentId}`);
       await fs.mkdir(buildDir, { recursive: true });
 
@@ -434,6 +474,100 @@ class DeploymentEngineService {
         onStdout: (chunk) => this.emitLog(io, deployment, 'docker', 'debug', chunk.trim(), {}),
         onStderr: (chunk) => this.emitLog(io, deployment, 'docker', 'warn', chunk.trim(), {}),
       });
+
+      // Handle AWS EC2 deployment
+      if (target.type === 'aws') {
+        console.log(`\n${'═'.repeat(60)}`);
+        console.log(`☁️  AWS EC2 DEPLOYMENT`);
+        console.log(`${'═'.repeat(60)}\n`);
+
+        deployment.updateStatus('deploying', 'push_ecr');
+        await this.saveDeployment(deployment);
+
+        // Push image to ECR
+        const ecrResult = await awsDeploymentEngine.pushImageToECR(
+          deploymentId,
+          imageName,
+          deployment,
+          io,
+          (io2, dep, source, level, message, data) => this.emitLog(io2, dep, source, level, message, data)
+        );
+
+        deployment.metadata.ecrImageUri = ecrResult.imageUri;
+        deployment.metadata.ecrRepository = ecrResult.repositoryName;
+        deployment.updateStatus('deploying', 'ec2_launch');
+        await this.saveDeployment(deployment);
+
+        // Launch EC2 instance
+        const ec2Result = await awsDeploymentEngine.launchEC2Instance(
+          deploymentId,
+          ecrResult.imageUri,
+          deployment,
+          io,
+          (io2, dep, source, level, message, data) => this.emitLog(io2, dep, source, level, message, data),
+          {
+            instanceType: target.instanceType,
+            keyName: target.keyName,
+            securityGroupIds: target.securityGroupIds,
+            vpcId: target.vpcId,
+            containerPort,
+          }
+        );
+
+        deployment.metadata.ec2InstanceId = ec2Result.instanceId;
+        deployment.metadata.ec2PublicIp = ec2Result.publicIp;
+        deployment.metadata.ec2PrivateIp = ec2Result.privateIp;
+        deployment.metadata.liveUrl = ec2Result.liveUrl;
+        deployment.publicUrl = ec2Result.liveUrl;
+        deployment.totalTime = Date.now() - startedAt;
+        deployment.updateStatus('success', 'complete');
+        deployment.markAsSuccess(ec2Result.liveUrl, Date.now() - startedAt);
+        deployment.metadata.deployState = 'running';
+        deployment.metadata.completedAt = new Date().toISOString();
+        await this.saveDeployment(deployment);
+
+        const totalTimeMs = Date.now() - startedAt;
+        const totalTimeSec = (totalTimeMs / 1000).toFixed(2);
+
+        console.log(`\n${'═'.repeat(60)}`);
+        console.log(`✅ AWS EC2 DEPLOYMENT SUCCESSFUL`);
+        console.log(`${'═'.repeat(60)}`);
+        console.log(`🌐 Live URL: ${ec2Result.liveUrl}`);
+        console.log(`☁️  Instance ID: ${ec2Result.instanceId}`);
+        console.log(`📍 Public IP: ${ec2Result.publicIp}`);
+        console.log(`🔒 Private IP: ${ec2Result.privateIp}`);
+        console.log(`📦 ECR URI: ${ecrResult.imageUri}`);
+        console.log(`⏱️  Total Time: ${totalTimeSec}s`);
+        console.log(`${'═'.repeat(60)}\n`);
+
+        this.emitLog(io, deployment, 'system', 'success', 'AWS EC2 deployment completed successfully', {
+          liveUrl: ec2Result.liveUrl,
+          instanceId: ec2Result.instanceId,
+          publicIp: ec2Result.publicIp,
+          ecrUri: ecrResult.imageUri,
+        });
+
+        // Emit completion event
+        if (io && typeof io.to === 'function') {
+          io.to(deployment.repositoryName).emit('deployment-complete', {
+            deploymentId: deployment._id.toString(),
+            status: 'success',
+            liveUrl: ec2Result.liveUrl,
+            instanceId: ec2Result.instanceId,
+          });
+        }
+
+        return {
+          success: true,
+          deploymentId: deployment._id.toString(),
+          status: deployment.status,
+          phase: deployment.phase,
+          liveUrl: ec2Result.liveUrl,
+          instanceId: ec2Result.instanceId,
+          publicIp: ec2Result.publicIp,
+          ecrUri: ecrResult.imageUri,
+        };
+      }
 
       deployment.updateStatus('deploying', 'container_start');
       await this.saveDeployment(deployment);
@@ -488,7 +622,32 @@ class DeploymentEngineService {
       deployment.metadata.containerStatus = 'running';
       await this.saveDeployment(deployment);
 
+      const totalTimeMs = Date.now() - startedAt;
+      const totalTimeSec = (totalTimeMs / 1000).toFixed(2);
+
+      console.log(`\n${'═'.repeat(60)}`);
+      console.log(`✅ DEPLOYMENT SUCCESSFUL`);
+      console.log(`${'═'.repeat(60)}`);
+      console.log(`🌐 Live URL: ${liveUrl}`);
+      console.log(`📦 Image: ${imageName}`);
+      console.log(`🐳 Container: ${containerName}`);
+      console.log(`🔌 Port: ${hostPort} → ${containerPort}`);
+      console.log(`⏱️  Total Time: ${totalTimeSec}s`);
+      console.log(`${'═'.repeat(60)}\n`);
+
       this.emitLog(io, deployment, 'system', 'success', 'Deployment completed successfully', {
+        liveUrl,
+        imageName,
+        containerName,
+        hostPort,
+        containerPort,
+      });
+
+      // Emit deployment-complete event via Socket.io
+      io.to(deployment.repositoryName).emit('deployment-complete', {
+        success: true,
+        deploymentId: deployment._id.toString(),
+        status: deployment.status,
         liveUrl,
         imageName,
         containerName,
@@ -508,6 +667,19 @@ class DeploymentEngineService {
         containerPort,
       };
     } catch (error) {
+      const totalTimeMs = startedAt ? Date.now() - startedAt : 0;
+      const totalTimeSec = (totalTimeMs / 1000).toFixed(2);
+
+      console.log(`\n${'═'.repeat(60)}`);
+      console.log(`❌ DEPLOYMENT FAILED`);
+      console.log(`${'═'.repeat(60)}`);
+      console.log(`❌ Error: ${error.message}`);
+      if (error.stderr) {
+        console.log(`❌ Details: ${error.stderr.substring(0, 200)}`);
+      }
+      console.log(`⏱️  Time: ${totalTimeSec}s`);
+      console.log(`${'═'.repeat(60)}\n`);
+
       if (deployment) {
         deployment.updateStatus('failed', 'cleanup');
         deployment.markAsFailed(error, deployment.phase);
@@ -515,8 +687,19 @@ class DeploymentEngineService {
         deployment.metadata.queueState = 'failed';
         deployment.metadata.failureAt = new Date().toISOString();
         await deployment.save().catch(() => {});
+        
+        // Provide detailed error messages based on error type
+        let errorMessage = error.message;
+        if (error.stderr && error.stderr.includes('dockerDesktopLinuxEngine')) {
+          errorMessage = '🐳 Docker daemon is not running. Please start Docker Desktop and try again.';
+        } else if (error.message && error.message.includes('Docker is not available')) {
+          errorMessage = error.message;
+        }
+        
         this.emitLog(io, deployment, 'system', 'error', 'Deployment failed', {
-          error: error.message,
+          error: errorMessage,
+          phase: deployment.phase,
+          stderr: error.stderr || '',
         });
       }
 

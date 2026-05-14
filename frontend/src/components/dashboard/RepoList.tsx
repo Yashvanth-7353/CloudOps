@@ -45,15 +45,43 @@ const RepoList: React.FC = () => {
   const [isStartingDeployment, setIsStartingDeployment] = useState(false);
   const [startDeploymentError, setStartDeploymentError] = useState<string | null>(null);
 
+  // Load connected repositories from MongoDB on component mount
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        setConnectedRepos(JSON.parse(saved));
+    const loadConnectedRepos = async () => {
+      try {
+        const data = await githubService.getConnectedRepositories();
+        
+        // Transform backend data to frontend Repo format
+        const mapped = (data.repositories || []).map((repo: any): Repo => ({
+          id: repo.id,
+          name: repo.name,
+          fullName: repo.fullName,
+          description: repo.description || null,
+          language: null, // Not available from Projects model
+          updatedAt: repo.updatedAt,
+          htmlUrl: repo.repositoryUrl,
+          cloneUrl: repo.repositoryUrl,
+          isPrivate: repo.isPrivate,
+          defaultBranch: 'main', // Not stored in Projects model
+        }));
+
+        setConnectedRepos(mapped);
+        console.log(`✅ Loaded ${mapped.length} connected repositories from MongoDB`);
+      } catch (err: any) {
+        console.error('Failed to load connected repositories:', err);
+        // Fallback to localStorage if backend fails
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) {
+            setConnectedRepos(JSON.parse(saved));
+          }
+        } catch {
+          setConnectedRepos([]);
+        }
       }
-    } catch {
-      setConnectedRepos([]);
-    }
+    };
+
+    loadConnectedRepos();
   }, []);
 
   const persistConnections = (items: Repo[]) => {
