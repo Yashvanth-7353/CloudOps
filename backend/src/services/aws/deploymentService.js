@@ -173,7 +173,8 @@ class AWSDeploymentService {
         bucketName = null,
         repositoryName = null,
         cleanupS3 = false,
-        cleanupECR = false,
+        cleanupECR = true,
+        deploymentId = null,
       } = deploymentConfig;
 
       if (!instanceId) {
@@ -181,6 +182,25 @@ class AWSDeploymentService {
       }
 
       const cleanupLog = [];
+      let effectiveRepositoryName = repositoryName;
+      let existingDeployment = null;
+
+      if (!effectiveRepositoryName && deploymentId) {
+        const Deployment = require('../models/Deployment');
+        existingDeployment = await Deployment.findById(deploymentId);
+
+        if (existingDeployment) {
+          effectiveRepositoryName = existingDeployment.infrastructure?.ecr?.repositoryName;
+          if (!effectiveRepositoryName && existingDeployment.infrastructure?.ecr?.repositoryUri) {
+            const uriParts = String(existingDeployment.infrastructure.ecr.repositoryUri).split('/');
+            effectiveRepositoryName = uriParts[uriParts.length - 1]?.split(':')[0] || null;
+          }
+
+          if (!effectiveRepositoryName && existingDeployment.repositoryName) {
+            effectiveRepositoryName = `cloudops-${existingDeployment.repositoryName}`.toLowerCase().substring(0, 256);
+          }
+        }
+      }
 
       // Terminate EC2 instance
       const ec2Response = await ec2Service.terminateInstance(instanceId);
@@ -213,20 +233,51 @@ class AWSDeploymentService {
       }
 
       // Cleanup ECR repository
-      if (cleanupECR && repositoryName) {
+      if (cleanupECR && effectiveRepositoryName) {
         try {
-          const ecrResponse = await ecrService.deleteRepository(repositoryName, {
+          const ecrResponse = await ecrService.deleteRepository(effectiveRepositoryName, {
             force: true,
           });
           cleanupLog.push({
             step: 'ECR Repository Deleted',
             status: 'success',
-            repositoryName,
+            repositoryName: effectiveRepositoryName,
             timestamp: new Date(),
           });
         } catch (error) {
           cleanupLog.push({
             step: 'ECR Cleanup',
+            status: 'warning',
+            message: error.message,
+            repositoryName: effectiveRepositoryName,
+            timestamp: new Date(),
+          });
+        }
+      }
+
+      // Update deployment status to closed
+      if (deploymentId) {
+        try {
+          const Deployment = require('../models/Deployment');
+          await Deployment.findByIdAndUpdate(
+            deploymentId,
+            {
+              status: 'closed',
+              phase: 'complete',
+              completedAt: new Date(),
+              totalTime: Date.now() - (await Deployment.findById(deploymentId)).startedAt,
+            },
+            { new: true }
+          );
+          cleanupLog.push({
+            step: 'Deployment Status Updated',
+            status: 'success',
+            newStatus: 'closed',
+            timestamp: new Date(),
+          });
+        } catch (error) {
+          cleanupLog.push({
+            step: 'Deployment Status Update',
             status: 'warning',
             message: error.message,
             timestamp: new Date(),
@@ -237,10 +288,32 @@ class AWSDeploymentService {
       return {
         success: true,
         cleanupLog,
-        message: 'Deployment termination initiated',
+        message: 'Deployment termination completed',
       };
     } catch (error) {
       throw new Error(`Termination failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Mark a deployment as redeployed
+   * Called when a webhook triggers a new deployment for the same project
+   */
+  async markDeploymentAsRedeployed(deploymentId) {
+    try {
+      const Deployment = require('../models/Deployment');
+      const deployment = await Deployment.findByIdAndUpdate(
+        deploymentId,
+        {
+          status: 'redeployed',
+          phase: 'complete',
+          completedAt: new Date(),
+        },
+        { new: true }
+      );
+      return deployment;
+    } catch (error) {
+      throw new Error(`Failed to mark deployment as redeployed: ${error.message}`);
     }
   }
 

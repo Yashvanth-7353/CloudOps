@@ -11,6 +11,7 @@ const dockerService = require('./dockerService');
 const frameworkDetector = require('./frameworkDetector');
 const gitService = require('./gitService');
 const awsDeploymentEngine = require('./awsDeploymentEngineService');
+const ec2Service = require('./aws/ec2Service');
 
 class DeploymentEngineService {
   constructor() {
@@ -1068,6 +1069,36 @@ class DeploymentEngineService {
         reason: `Push to branch ${branch} ignored. Auto-redeploy is enabled only for main.`,
         branch,
       };
+    }
+
+    // Mark previous deployment as redeployed if it exists and is running/success
+    if (latestDeployment && ['running', 'success'].includes(latestDeployment.status)) {
+      try {
+        latestDeployment.status = 'redeployed';
+        latestDeployment.phase = 'complete';
+        if (!latestDeployment.completedAt) {
+          latestDeployment.completedAt = new Date();
+        }
+        await latestDeployment.save();
+        this.emitLog(io, latestDeployment, 'system', 'info', 'Previous deployment marked as redeployed');
+
+        const previousInstanceId = latestDeployment.infrastructure?.ec2?.instanceId || latestDeployment.metadata?.ec2InstanceId;
+        if (previousInstanceId) {
+          try {
+            await ec2Service.terminateInstance(previousInstanceId);
+            this.emitLog(io, latestDeployment, 'system', 'info', 'Previous EC2 instance terminated after redeploy', {
+              instanceId: previousInstanceId,
+            });
+          } catch (terminateError) {
+            this.emitLog(io, latestDeployment, 'system', 'warn', 'Failed to terminate previous EC2 instance after redeploy', {
+              instanceId: previousInstanceId,
+              error: terminateError.message,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to mark previous deployment as redeployed:', error.message);
+      }
     }
 
     const deploymentCount = await Deployment.countDocuments({ projectId: project._id });

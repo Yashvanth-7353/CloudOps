@@ -539,7 +539,7 @@ class AWSController {
   async terminateDeployment(req, res) {
     try {
       const { instanceId } = req.params;
-      const { bucketName, repositoryName, cleanupS3, cleanupECR } = req.body;
+      const { bucketName, repositoryName, cleanupS3, cleanupECR, deploymentId } = req.body;
 
       if (!instanceId) {
         return res.status(400).json({
@@ -553,7 +553,8 @@ class AWSController {
         bucketName,
         repositoryName,
         cleanupS3: cleanupS3 || false,
-        cleanupECR: cleanupECR || false,
+        cleanupECR: cleanupECR !== false,
+        deploymentId,
       });
 
       res.json({

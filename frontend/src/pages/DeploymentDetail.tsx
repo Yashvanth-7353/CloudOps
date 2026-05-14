@@ -181,7 +181,7 @@ export default function DeploymentDetailPage() {
       return;
     }
 
-    
+
     let disposed = false;
 
     const fetchDeployment = async () => {
@@ -287,21 +287,26 @@ export default function DeploymentDetailPage() {
       return;
     }
 
+    const effectiveEcrRepositoryName =
+      infrastructure?.ecr?.repositoryName ||
+      (deployment?.repositoryName ? `cloudops-${deployment.repositoryName}`.toLowerCase().substring(0, 256) : undefined);
+
     try {
       setBringingDown(true);
       setBringDownConfirmOpen(false);
 
       await deploymentService.terminateAwsDeployment(deploymentInstanceId, {
-        repositoryName: deployment?.repositoryName,
+        repositoryName: effectiveEcrRepositoryName,
         cleanupECR: true,
+        deploymentId: deployment?._id,
       });
 
       setDeployment((current) =>
         current
           ? {
               ...current,
-              status: 'stopped',
-              phase: 'cancelled',
+              status: 'closed',
+              phase: 'complete',
               publicUrl: undefined,
             }
           : current
