@@ -14,8 +14,7 @@ const DeploymentSchema = new mongoose.Schema(
       index: true,
     },
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      type: String, // <-- Changed to String to match GitHub IDs!
       required: true,
       index: true,
     },

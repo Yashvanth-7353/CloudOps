@@ -88,7 +88,7 @@ export default function DeployProject() {
       addLog(`Configuration saved. Starting build engine...`, 'success');
       
       // Trigger the backend build process which fires socket events
-      await deploymentService.startBuild(repo!);
+      await deploymentService.startBuild(repo!, owner!);
 
     } catch (err: any) {
       addLog(`Error: ${err.message}`, 'error');
