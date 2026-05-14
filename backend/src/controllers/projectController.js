@@ -68,7 +68,26 @@ const getProject = async (req, res) => {
   }
 };
 
+// Get all projects for the authenticated user
+const getProjects = async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'No token provided' });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = String(decoded.id);
+
+    const projects = await Project.find({ userId }).sort({ updatedAt: -1, createdAt: -1 });
+
+    return res.status(200).json({ success: true, projects });
+  } catch (error) {
+    console.error('Get projects error:', error);
+    return res.status(400).json({ success: false, error: error.message });
+  }
+};
+
 module.exports = {
   updateProject,
   getProject,
+  getProjects,
 };

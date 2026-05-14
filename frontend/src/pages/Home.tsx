@@ -3,6 +3,8 @@ import { Hero, Features } from '@/components/sections';
 import { Layout } from '@/components/layout';
 import { ArrowRight } from 'lucide-react';
 import { useAuth } from '@/app/providers/auth-provider';
+import { useEffect, useState } from 'react';
+import { apiClient } from '@/services/api/interceptors';
 
 /**
  * Home Page
@@ -12,6 +14,23 @@ import { useAuth } from '@/app/providers/auth-provider';
 
 export default function HomePage() {
   const { isAuthenticated } = useAuth();
+  const [metrics, setMetrics] = useState<any | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await apiClient.get('/api/analytics/dashboard');
+        if (!mounted) return;
+        if (res?.data?.success && res.data.metrics) {
+          setMetrics(res.data.metrics);
+        }
+      } catch (e) {
+        // ignore - keep demo values
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   // If not authenticated, show login page
   if (!isAuthenticated) {
@@ -135,10 +154,10 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 text-center">
             {[
-              { number: '5000+', label: 'Deployments Monthly' },
-              { number: '99.9%', label: 'Platform Uptime' },
-              { number: '500+', label: 'Active Users' },
-              { number: '< 2min', label: 'Deploy Time' },
+              { number: metrics ? `${metrics.monthlyDeployments}` : '5000+', label: 'Deployments Monthly' },
+              { number: metrics ? `${metrics.uptime}` : '99.9%', label: 'Platform Uptime' },
+              { number: metrics ? `${metrics.activeUsers}` : '500+', label: 'Active Users' },
+              { number: metrics && metrics.avgDeployTimeMs ? `${Math.round((metrics.avgDeployTimeMs||0)/1000)}s` : '< 2min', label: 'Deploy Time' },
             ].map((stat, index) => (
               <motion.div
                 key={stat.label}

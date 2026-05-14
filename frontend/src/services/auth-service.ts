@@ -62,6 +62,20 @@ export const deploymentService = {
 };
 
 /**
+ * Project Service
+ * Handles project and environment-variable API calls
+ */
+export const projectService = {
+  getAll: () => apiClient.get(ENDPOINTS.PROJECTS.LIST),
+
+  getById: (id: string) =>
+    apiClient.get(generateEndpoint(ENDPOINTS.PROJECTS.GET, { id })),
+
+  update: (id: string, data: any) =>
+    apiClient.put(generateEndpoint(ENDPOINTS.PROJECTS.UPDATE, { id }), data),
+};
+
+/**
  * Cost Service
  * Handles cost prediction and tracking API calls
  */

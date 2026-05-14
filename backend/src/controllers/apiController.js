@@ -88,12 +88,55 @@ const getDeploymentStatus = async (req, res) => {
     }
 };
 
-const getAnalyticsDashboard = (req, res) => {
-    res.json({
-        deployments: 0,
-        uptime: '99.9%',
-        totalCost: 0,
-    });
+const Deployment = require('../models/Deployment');
+const User = require('../models/User');
+const Project = require('../models/Project');
+
+const getAnalyticsDashboard = async (req, res) => {
+    try {
+        // Total deployments
+        const totalDeployments = await Deployment.countDocuments();
+
+        // Successful deployments
+        const successfulDeployments = await Deployment.countDocuments({ status: 'success' });
+
+        // Deployments in last 30 days
+        const thirtyDays = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30);
+        const monthlyDeployments = await Deployment.countDocuments({ createdAt: { $gte: thirtyDays } });
+
+        // Average deploy time for successful deployments (ms -> human readable)
+        const avgAgg = await Deployment.aggregate([
+            { $match: { status: 'success', deployTime: { $exists: true, $ne: null } } },
+            { $group: { _id: null, avgDeployTimeMs: { $avg: '$deployTime' } } },
+        ]);
+        const avgDeployTimeMs = (avgAgg && avgAgg[0] && Math.round(avgAgg[0].avgDeployTimeMs)) || null;
+
+        // Active users (approx) - users with lastLoginAt within 90 days
+        const ninetyDays = new Date(Date.now() - 1000 * 60 * 60 * 24 * 90);
+        const activeUsers = await User.countDocuments({ lastLoginAt: { $gte: ninetyDays } });
+
+        // Projects count
+        const projectsCount = await Project.countDocuments();
+
+        // Platform uptime - placeholder for now (calculate from monitoring in production)
+        const uptime = '99.9%';
+
+        return res.status(200).json({
+            success: true,
+            metrics: {
+                totalDeployments,
+                successfulDeployments,
+                monthlyDeployments,
+                avgDeployTimeMs,
+                activeUsers,
+                projectsCount,
+                uptime,
+            },
+        });
+    } catch (error) {
+        console.error('Analytics dashboard error:', error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
 };
 
 const getAnalyticsDeployments = (req, res) => {

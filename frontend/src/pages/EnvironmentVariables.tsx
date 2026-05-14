@@ -2,18 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Database, Loader2, RefreshCw, Search, Eye, EyeOff, Copy, MoreHorizontal } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
-import { deploymentService } from '@/services/auth-service';
-import { apiClient } from '@/services/api/interceptors';
-import { ENDPOINTS, generateEndpoint } from '@/services/api/endpoints';
+import { useToast } from '@/components/ui/ToastProvider';
+import { projectService, deploymentService } from '@/services/auth-service';
 
 type EnvItem = {
   key?: string;
   value?: string;
 };
 
-type DeploymentRecord = {
+type ProjectRecord = {
+  _id?: string;
   repositoryName?: string;
   repositoryUrl?: string;
+  repositoryOwner?: string;
   environmentVariables?: EnvItem[];
   updatedAt?: string;
   createdAt?: string;
@@ -57,21 +58,34 @@ const formatShortDate = (value?: string) => {
 };
 
 export default function EnvironmentVariablesPage() {
-  const [deployments, setDeployments] = useState<DeploymentRecord[]>([]);
+  const { notify } = useToast();
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [deployments, setDeployments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [selectedVar, setSelectedVar] = useState<{
+    projectId: string;
     projectName: string;
     key: string;
     updatedAt?: string;
   } | null>(null);
+  const [occurrences, setOccurrences] = useState<Array<{
+    source: 'project' | 'deployment';
+    id?: string;
+    projectId?: string | null;
+    repositoryName?: string | null;
+    repositoryUrl?: string | null;
+    value?: string | null;
+  }>>([]);
+  const [selectedOccurrenceIndex, setSelectedOccurrenceIndex] = useState(0);
   const [revealValue, setRevealValue] = useState(false);
   const [selectedValue, setSelectedValue] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
+  const [copied, setCopied] = useState(false);
 
   const fetchDeploymentData = async (silent = false) => {
     if (silent) {
@@ -81,9 +95,17 @@ export default function EnvironmentVariablesPage() {
     }
 
     try {
-      const response = await deploymentService.getAll();
-      const raw = response?.data?.data || response?.data?.deployments || response?.data || [];
-      setDeployments(Array.isArray(raw) ? raw : []);
+      const response = await projectService.getAll();
+      const raw = response?.data?.projects || response?.data?.data || response?.data || [];
+      setProjects(Array.isArray(raw) ? raw : []);
+      // Also fetch recent deployments to pick up env vars stored on deployments
+      try {
+        const depRes = await deploymentService.getAll({ limit: 500 });
+        const depRaw = depRes?.data?.data || depRes?.data || [];
+        setDeployments(Array.isArray(depRaw) ? depRaw : []);
+      } catch (e) {
+        setDeployments([]);
+      }
       setError(null);
     } catch (fetchError: any) {
       setError(fetchError?.response?.data?.error || fetchError?.message || 'Unable to load environment variables.');
@@ -104,34 +126,49 @@ export default function EnvironmentVariablesPage() {
       setRevealValue(false);
       return;
     }
+    const { projectId, key, projectName } = selectedVar;
 
-    const { projectName, key } = selectedVar;
+    // Build occurrences: find all projects and deployments that contain this key
+    const occs: Array<any> = [];
 
-    // Find the latest deployment for this project that contains the key
-    let latestValue = null;
-    let latestDate = 0;
-
-    for (const d of deployments) {
-      const name = deriveProjectName(d);
-      if (name !== projectName) continue;
-      const vars = Array.isArray(d.environmentVariables) ? d.environmentVariables : [];
-      for (const v of vars) {
-        if (!v || !v.key) continue;
-        if (v.key === key) {
-          const t = normalizeDate(d.updatedAt || d.createdAt)?.getTime?.() || new Date(d.updatedAt || d.createdAt || Date.now()).getTime();
-          if (t > latestDate) {
-            latestDate = t;
-            latestValue = v.value ?? null;
-          }
-        }
+    for (const p of projects) {
+      const envVars = Array.isArray(p.environmentVariables) ? p.environmentVariables : [];
+      const match = envVars.find((v) => v?.key === key);
+      if (match) {
+        occs.push({
+          source: 'project',
+          id: String(p._id),
+          projectId: String(p._id),
+          repositoryName: p.repositoryName || null,
+          repositoryUrl: p.repositoryUrl || null,
+          value: match.value ?? null,
+        });
       }
     }
 
-    setSelectedValue(latestValue);
+    for (const d of deployments) {
+      const envVars = Array.isArray(d.environmentVariables) ? d.environmentVariables : [];
+      const match = envVars.find((v) => v?.key === key);
+      if (match) {
+        occs.push({
+          source: 'deployment',
+          id: String(d._id || d.deploymentId || ''),
+          projectId: d.projectId || null,
+          repositoryName: d.repositoryName || null,
+          repositoryUrl: d.repositoryUrl || null,
+          value: match.value ?? null,
+        });
+      }
+    }
+
+    setOccurrences(occs);
+    const chosen = occs.length ? occs[0] : null;
+    setSelectedOccurrenceIndex(0);
+    const valueToEdit = chosen?.value ?? null;
+    setSelectedValue(valueToEdit);
     setRevealValue(false);
-    // set editing field
-    setEditingValue(latestValue ?? '');
-  }, [selectedVar, deployments]);
+    setEditingValue(valueToEdit ?? '');
+  }, [selectedVar, projects, deployments]);
 
   useEffect(() => {
     if (!selectedVar) {
@@ -139,40 +176,50 @@ export default function EnvironmentVariablesPage() {
       return;
     }
 
-    // find a deployment for this project that has a projectId
-    const { projectName, key } = selectedVar;
-    for (const d of deployments) {
-      if (!d) continue;
-      const name = deriveProjectName(d);
-      if (name !== projectName) continue;
-      const vars = Array.isArray(d.environmentVariables) ? d.environmentVariables : [];
-      if (vars.some((v) => v?.key === key) && d.projectId) {
-        setSelectedProjectId(String(d.projectId));
-        return;
-      }
-    }
-    setSelectedProjectId(null);
-  }, [selectedVar, deployments]);
+    setSelectedProjectId(selectedVar.projectId);
+  }, [selectedVar]);
 
   const groupedProjects = useMemo<ProjectEnvGroup[]>(() => {
     const groupMap = new Map<string, { updatedAt?: string; variableMap: Map<string, ProjectVariable> }>();
 
-    for (const deployment of deployments) {
-      const envVars = Array.isArray(deployment.environmentVariables) ? deployment.environmentVariables : [];
+    for (const project of projects) {
+      const envVars = Array.isArray(project.environmentVariables) ? project.environmentVariables : [];
+
+      // Merge env vars from related deployments (include failed and success)
+      const relatedDeployments = deployments.filter((d) => {
+        if (!d) return false;
+        if (d.projectId && project._id && String(d.projectId) === String(project._id)) return true;
+        // fallback match by repository name/url
+        const repoNameMatch = project.repositoryName && d.repositoryName && project.repositoryName === d.repositoryName;
+        const repoUrlMatch = project.repositoryUrl && d.repositoryUrl && project.repositoryUrl === d.repositoryUrl;
+        return repoNameMatch || repoUrlMatch;
+      });
+
+      for (const d of relatedDeployments) {
+        const deployEnv = Array.isArray(d.environmentVariables) ? d.environmentVariables : [];
+        if (deployEnv.length) {
+          // append deployment env vars if they are not already present
+          for (const ev of deployEnv) {
+            if (!ev || !ev.key) continue;
+            const existsInProject = envVars.some((p) => p?.key === ev.key);
+            if (!existsInProject) envVars.push({ key: ev.key, value: ev.value });
+          }
+        }
+      }
       if (!envVars.length) continue;
 
-      const projectName = deriveProjectName(deployment);
+      const projectName = deriveProjectName(project);
       if (!groupMap.has(projectName)) {
-        groupMap.set(projectName, { updatedAt: deployment.updatedAt || deployment.createdAt, variableMap: new Map() });
+        groupMap.set(projectName, { updatedAt: project.updatedAt || project.createdAt, variableMap: new Map() });
       }
 
       const currentGroup = groupMap.get(projectName);
       if (!currentGroup) continue;
 
       const currentUpdated = normalizeDate(currentGroup.updatedAt);
-      const nextUpdated = normalizeDate(deployment.updatedAt || deployment.createdAt);
+      const nextUpdated = normalizeDate(project.updatedAt || project.createdAt);
       if (!currentUpdated || (nextUpdated && nextUpdated > currentUpdated)) {
-        currentGroup.updatedAt = deployment.updatedAt || deployment.createdAt;
+        currentGroup.updatedAt = project.updatedAt || project.createdAt;
       }
 
       for (const envVar of envVars) {
@@ -180,7 +227,7 @@ export default function EnvironmentVariablesPage() {
         if (!rawKey) continue;
 
         const existing = currentGroup.variableMap.get(rawKey);
-        const candidateUpdatedAt = deployment.updatedAt || deployment.createdAt;
+        const candidateUpdatedAt = project.updatedAt || project.createdAt;
 
         if (!existing) {
           currentGroup.variableMap.set(rawKey, {
@@ -205,7 +252,7 @@ export default function EnvironmentVariablesPage() {
         variables: Array.from(group.variableMap.values()).sort((a, b) => a.key.localeCompare(b.key)),
       }))
       .sort((a, b) => a.projectName.localeCompare(b.projectName));
-  }, [deployments]);
+  }, [projects]);
 
   const filteredProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -216,19 +263,51 @@ export default function EnvironmentVariablesPage() {
         const projectMatches = project.projectName.toLowerCase().includes(normalizedQuery);
         if (projectMatches) return project;
 
-        const matchedVariables = project.variables.filter((item) => item.key.toLowerCase().includes(normalizedQuery));
+        const matchedVariables = project.variables.filter((item) => {
+          const keyMatch = item.key.toLowerCase().includes(normalizedQuery);
+          const valueMatch = (() => {
+            // try to find value from projects/deployments for this key
+            const key = item.key;
+            const foundInProject = projects.find((p) => deriveProjectName(p) === project.projectName && Array.isArray(p.environmentVariables) && p.environmentVariables.some((v) => v?.key === key && String(v?.value || '').toLowerCase().includes(normalizedQuery)));
+            if (foundInProject) return true;
+            const foundInDeployment = deployments.some((d) => Array.isArray(d.environmentVariables) && d.environmentVariables.some((v) => v?.key === key && String(v?.value || '').toLowerCase().includes(normalizedQuery)));
+            return foundInDeployment;
+          })();
+          return keyMatch || valueMatch;
+        });
         return {
           ...project,
           variables: matchedVariables,
         };
       })
-      .filter((project) => project.variables.length > 0 || project.projectName.toLowerCase().includes(normalizedQuery));
+        .filter((project) => project.variables.length > 0 || project.projectName.toLowerCase().includes(normalizedQuery));
   }, [groupedProjects, query]);
 
   const totalVariableCount = useMemo(
     () => groupedProjects.reduce((count, project) => count + project.variables.length, 0),
     [groupedProjects]
   );
+
+  const selectedRepoDisplay = useMemo(() => {
+    if (!selectedVar) return null;
+    const { projectId, projectName } = selectedVar;
+
+    // First try projects
+    const project = projects.find((p) => String(p._id) === String(projectId) || deriveProjectName(p) === projectName);
+    if (project) return project.repositoryName || project.repositoryUrl || null;
+
+    // Then try deployments
+    const dep = deployments.find((d) => {
+      if (!d) return false;
+      if (d.projectId && projectId && String(d.projectId) === String(projectId)) return true;
+      const repoNameMatch = projectName && d.repositoryName && projectName === d.repositoryName;
+      const repoUrlMatch = project && d.repositoryUrl && project.repositoryUrl === d.repositoryUrl;
+      return repoNameMatch || repoUrlMatch;
+    });
+    if (dep) return dep.repositoryName || dep.repositoryUrl || null;
+
+    return null;
+  }, [selectedVar, projects, deployments]);
 
   return (
     <DashboardLayout>
@@ -267,7 +346,7 @@ export default function EnvironmentVariablesPage() {
             </div>
             <div className="rounded-2xl border border-white/10 bg-[rgba(8,12,20,0.75)] p-4 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
               <div className="text-xs uppercase tracking-[0.24em] text-white/45">Data Source</div>
-              <div className="mt-3 text-lg font-semibold text-white/90">Deployments</div>
+              <div className="mt-3 text-lg font-semibold text-white/90">Projects</div>
             </div>
           </div>
 
@@ -338,7 +417,15 @@ export default function EnvironmentVariablesPage() {
                             <tr
                               key={`${project.projectName}:${variable.key}`}
                               className="border-t border-white/6 text-sm text-white/85 hover:bg-white/3 cursor-pointer"
-                              onClick={() => setSelectedVar({ projectName: project.projectName, key: variable.key!, updatedAt: variable.updatedAt })}
+                              onClick={() => {
+                                const matchingProject = projects.find((item) => deriveProjectName(item) === project.projectName);
+                                setSelectedVar({
+                                  projectId: String(matchingProject?._id || ''),
+                                  projectName: project.projectName,
+                                  key: variable.key!,
+                                  updatedAt: variable.updatedAt,
+                                });
+                              }}
                             >
                               <td className="px-4 py-3 font-mono text-[13px] text-cyan-200">{variable.key}</td>
                               <td className="px-4 py-3 text-white/70">{DEFAULT_SCOPE}</td>
@@ -378,26 +465,19 @@ export default function EnvironmentVariablesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60" onClick={() => setSelectedVar(null)} />
           <div className="relative z-60 w-full max-w-2xl mx-4 max-h-[80vh] overflow-auto">
-            <div className="rounded-2xl bg-[rgba(8,12,20,0.92)] border border-white/10 p-6 shadow-xl">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <div className="px-3 py-1 rounded bg-white/6 text-white/80 font-mono">{selectedVar.key}</div>
-                    <div className="text-sm text-white/60">All Environments</div>
-                  </div>
-                  <div className="mt-2 text-xs text-white/50">Added {formatShortDate(selectedVar.updatedAt)}</div>
-                </div>
+            <div className="rounded-2xl bg-[rgba(8,12,20,0.92)] border border-white/10 p-6 shadow-xl space-y-4">
+              {/* Repo name */}
+              {selectedRepoDisplay && (
+                <div className="text-xs text-white/40">{selectedRepoDisplay}</div>
+              )}
 
-                <div className="flex items-center gap-2">
-                  <button className="p-2 rounded-full bg-white/6">
-                    <MoreHorizontal className="w-4 h-4 text-white/80" />
-                  </button>
-                </div>
-              </div>
+              {/* Env var key */}
+              <div className="text-sm font-mono text-cyan-200">{selectedVar.key}</div>
 
-              <div className="mt-4">
+              {/* Value input with actions */}
+              <div>
                 <label className="block text-xs text-white/60 mb-2">Value</label>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <input
                     type={revealValue ? 'text' : 'password'}
                     value={editingValue}
@@ -414,28 +494,56 @@ export default function EnvironmentVariablesPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => editingValue && navigator.clipboard?.writeText(String(editingValue))}
+                    onClick={async () => {
+                      try {
+                        if (!editingValue) return;
+                        if (navigator.clipboard && window.isSecureContext) {
+                          await navigator.clipboard.writeText(String(editingValue));
+                        } else {
+                          const ta = document.createElement('textarea');
+                          ta.value = String(editingValue);
+                          ta.style.position = 'fixed';
+                          ta.style.left = '-9999px';
+                          document.body.appendChild(ta);
+                          ta.select();
+                          document.execCommand('copy');
+                          document.body.removeChild(ta);
+                        }
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1800);
+                        try { notify({ title: 'Copied', message: 'Value copied to clipboard', variant: 'success' }); } catch (e) { /* no-op */ }
+                      } catch (err) {
+                        console.error('Copy failed', err);
+                        try { notify({ title: 'Copy failed', message: 'Unable to copy value', variant: 'error' }); } catch (e) { /* no-op */ }
+                      }
+                    }}
                     className="p-2 rounded-lg border border-white/8 bg-white/5 text-white/80"
                     aria-label="Copy value"
+                    title={copied ? 'Copied' : 'Copy value'}
                   >
                     <Copy className="w-4 h-4" />
                   </button>
-
                   <button
                     onClick={async () => {
-                      if (!selectedProjectId || !selectedVar) return;
+                      if (!selectedVar) return;
+                      const projectToUpdate = selectedProjectId;
+                      if (!projectToUpdate) {
+                        try { notify({ title: 'Save not available', message: 'Unable to determine project for this variable. Please refresh and try again.', variant: 'warning' }); } catch (e) { /* no-op */ }
+                        return;
+                      }
+
                       try {
                         const payload = { key: selectedVar.key, value: editingValue };
-                        await apiClient.put(generateEndpoint(ENDPOINTS.PROJECTS.UPDATE, { id: selectedProjectId }), payload);
-                        // refresh deployments to reflect change
+                        await projectService.update(projectToUpdate, payload);
                         await fetchDeploymentData();
                         setSelectedValue(editingValue);
-                        // close modal and clear editing state
                         setSelectedVar(null);
                         setEditingValue('');
                         setSelectedProjectId(null);
+                        try { notify({ title: 'Saved', message: 'Environment variable updated', variant: 'success' }); } catch (e) { /* no-op */ }
                       } catch (err) {
                         console.error('Failed to save env var', err);
+                        try { notify({ title: 'Save failed', message: 'Unable to save environment variable', variant: 'error' }); } catch (e) { /* no-op */ }
                       }
                     }}
                     className="rounded-lg px-4 py-2 bg-cyan-500/15 text-cyan-100"
