@@ -181,6 +181,7 @@ export default function DeploymentDetailPage() {
       return;
     }
 
+    
     let disposed = false;
 
     const fetchDeployment = async () => {
