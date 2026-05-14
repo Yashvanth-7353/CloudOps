@@ -1,60 +1,32 @@
-/**
- * Deployment Service Hooks
- * Handles deployment-specific business logic
- */
+import { axiosClient } from './api/axios-client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { deploymentService } from './auth-service';
+export const deploymentService = {
+  // Add this inside the deploymentService object:
+  startBuild: async (repositoryName: string) => {
+    try {
+      const response = await axiosClient.post('/api/deploy/start-build', { repositoryName });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to start build engine');
+    }
+  },
+  initDeploy: async (repositoryName: string, repositoryOwner: string) => {
+    try {
+      const response = await axiosClient.post('/api/deploy/init', { repositoryName, repositoryOwner });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to initialize deployment');
+    }
 
-export const useDeployments = (params?: Record<string, any>) => {
-  return useQuery({
-    queryKey: ['deployments', params],
-    queryFn: () => deploymentService.getAll(params),
-  });
-};
+    
+  },
 
-export const useDeploymentDetail = (id: string) => {
-  return useQuery({
-    queryKey: ['deployment', id],
-    queryFn: () => deploymentService.getById(id),
-    enabled: !!id,
-  });
-};
-
-export const useCreateDeployment = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (data: any) => deploymentService.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['deployments'] });
-    },
-  });
-};
-
-export const useDeleteDeployment = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => deploymentService.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['deployments'] });
-    },
-  });
-};
-
-export const useDeploymentLogs = (id: string, params?: Record<string, any>) => {
-  return useQuery({
-    queryKey: ['deployment-logs', id, params],
-    queryFn: () => deploymentService.getLogs(id, params),
-    enabled: !!id,
-    refetchInterval: 5000, // Refetch logs every 5 seconds
-  });
-};
-
-export const useDeploymentStatus = (id: string) => {
-  return useQuery({
-    queryKey: ['deployment-status', id],
-    queryFn: () => deploymentService.getStatus(id),
-    enabled: !!id,
-    refetchInterval: 3000, // Refetch status every 3 seconds
-  });
+  saveFiles: async (data: { clonePath: string, envContent: string, envPath: string, dockerfileContent?: string }) => {
+    try {
+      const response = await axiosClient.post('/api/deploy/save-files', data);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to save deployment files');
+    }
+  }
 };

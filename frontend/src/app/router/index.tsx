@@ -8,6 +8,7 @@ import {
   NavbarLoadingState,
   DeploymentLogsSkeleton,
 } from '@/components/skeletons';
+import DeployProject from '../../pages/DeployProject';
 
 // Lazy load pages
 const HomePage = lazy(() => import('@/pages/Home'));
@@ -75,6 +76,7 @@ function Routes() {
               <Route path="/deployments" element={<DeploymentLogsPage />} />
               <Route path="/deployment-logs" element={<DeploymentLogsPage />} />
               <Route path="/live-projects" element={<LiveProjectsPage />} />
+              <Route path="/deploy/:owner/:repo" element={<DeployProject />} />
             </Route>
 
             <Route path="/docs" element={<DocsPage />} />

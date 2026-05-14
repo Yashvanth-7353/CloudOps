@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ExternalLink, Github, Lock, CalendarClock, CheckCircle2, PlugZap, Rocket, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { githubService } from '../../services/github-service'; 
+import { useNavigate } from 'react-router-dom';
 
 export type Repo = {
   id: string;
@@ -23,6 +24,7 @@ const RepoCard: React.FC<{
   onRemove?: (repo: Repo) => void;
   onDeploy?: (repo: Repo) => void;
 }> = ({ repo, selected = false, onConnect, onRemove, onDeploy }) => {
+  const navigate = useNavigate();
   const [isConnecting, setIsConnecting] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -165,11 +167,14 @@ const RepoCard: React.FC<{
                 )}
               </button>
 
-              <button
-                type="button"
-                onClick={() => onDeploy?.(repo)}
-                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/20 transition"
-              >
+             <button
+  type="button"
+  onClick={() => {
+    const owner = repo.fullName.split('/')[0];
+    navigate(`/deploy/${owner}/${repo.name}`);
+  }}
+  className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/20 transition"
+>
                 <Rocket className="h-4 w-4" />
                 Deploy
               </button>
