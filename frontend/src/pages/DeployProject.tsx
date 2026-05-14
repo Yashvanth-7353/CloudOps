@@ -103,7 +103,7 @@ export default function DeployProject() {
 
       const deploymentIdToOpen = data?.deploymentId || activeDeploymentId;
       if (deploymentIdToOpen) {
-        navigate(`/deployment-logs?deploymentId=${encodeURIComponent(deploymentIdToOpen)}`);
+        navigate(`/deployments/${encodeURIComponent(deploymentIdToOpen)}`);
       }
 
       newSocket.disconnect();

@@ -1,3 +1,5 @@
+const deploymentEngine = require('../services/deploymentEngineService');
+
 const healthCheck = (req, res) => {
     res.json({
         status: 'ok',
@@ -6,10 +8,25 @@ const healthCheck = (req, res) => {
     });
 };
 
-const listDeployments = (req, res) => {
-    res.status(501).json({
-        error: 'Deprecated endpoint. Use /api/deploy routes for real deployment data.',
-    });
+const listDeployments = async (req, res) => {
+    try {
+        const deployments = await deploymentEngine.listDeployments({
+            projectId: req.query.projectId,
+            userId: req.query.userId,
+            status: req.query.status,
+        });
+
+        return res.status(200).json({
+            success: true,
+            data: deployments,
+            count: deployments.length,
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to list deployments',
+        });
+    }
 };
 
 const createDeployment = (req, res) => {
@@ -18,22 +35,57 @@ const createDeployment = (req, res) => {
     });
 };
 
-const getDeploymentById = (req, res) => {
-    res.status(501).json({
-        error: 'Deprecated endpoint. Use GET /api/deploy/:deploymentId for real deployment status.',
-    });
+const getDeploymentById = async (req, res) => {
+    try {
+        const deployment = await deploymentEngine.getDeploymentDetails(req.params.id);
+
+        return res.status(200).json({
+            success: true,
+            deployment,
+        });
+    } catch (error) {
+        return res.status(404).json({
+            success: false,
+            error: error.message || 'Deployment not found',
+        });
+    }
 };
 
-const getDeploymentLogs = (req, res) => {
-    res.status(501).json({
-        error: 'Deprecated endpoint. Use GET /api/deploy/:deploymentId/logs for real deployment logs.',
-    });
+const getDeploymentLogs = async (req, res) => {
+    try {
+        const logs = await deploymentEngine.getDeploymentLogs(req.params.id, {
+            source: req.query.source || null,
+            level: req.query.level || null,
+            limit: Number(req.query.limit || 100),
+            skip: Number(req.query.skip || 0),
+        });
+
+        return res.status(200).json({
+            success: true,
+            logs,
+        });
+    } catch (error) {
+        return res.status(404).json({
+            success: false,
+            error: error.message || 'Deployment logs not found',
+        });
+    }
 };
 
-const getDeploymentStatus = (req, res) => {
-    res.status(501).json({
-        error: 'Deprecated endpoint. Use GET /api/deploy/:deploymentId for real deployment status.',
-    });
+const getDeploymentStatus = async (req, res) => {
+    try {
+        const deployment = await deploymentEngine.getDeploymentDetails(req.params.id);
+
+        return res.status(200).json({
+            success: true,
+            deployment,
+        });
+    } catch (error) {
+        return res.status(404).json({
+            success: false,
+            error: error.message || 'Deployment status not found',
+        });
+    }
 };
 
 const getAnalyticsDashboard = (req, res) => {

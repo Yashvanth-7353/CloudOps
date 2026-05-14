@@ -198,7 +198,7 @@ const RepoList: React.FC = () => {
 
       sessionStorage.setItem('cloudops_selected_repository', JSON.stringify({ ...repoToDeploy, envVars: normalizedEnvVars }));
       setDeployingRepo(null);
-      navigate(`/deployment-logs?deploymentId=${encodeURIComponent(deploymentId)}`);
+      navigate(`/deployments/${encodeURIComponent(deploymentId)}`);
     } catch (deployError: any) {
       setStartDeploymentError(
         deployError?.response?.data?.error

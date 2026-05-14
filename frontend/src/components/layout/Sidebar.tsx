@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Home, BarChart3, CreditCard, Settings, Rocket, ScrollText, Cloud } from 'lucide-react';
+import { Home, BarChart3, CreditCard, Settings, Rocket, Layers3, Cloud } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 interface NavItem {
@@ -12,7 +12,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <Home className="w-5 h-5" />, href: '/dashboard' },
-  { key: 'deployment-logs', label: 'Deployment Logs', icon: <ScrollText className="w-5 h-5" />, href: '/deployment-logs' },
+  { key: 'deployments', label: 'Deployments', icon: <Layers3 className="w-5 h-5" />, href: '/deployments' },
   { key: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-5 h-5" />, href: '/analytics' },
   { key: 'billing', label: 'Billing', icon: <CreditCard className="w-5 h-5" />, href: '/billing' },
   { key: 'settings', label: 'Settings', icon: <Settings className="w-5 h-5" />, href: '/settings' },
