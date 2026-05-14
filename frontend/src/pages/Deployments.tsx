@@ -4,7 +4,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowRight,
-  CheckCircle2,
   Clock3,
   ExternalLink,
   Filter,
@@ -15,10 +14,9 @@ import {
   RefreshCw,
   Search,
   Server,
-  XCircle,
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
-import { deploymentService } from '@/services/auth-service';
+import { authService, deploymentService } from '@/services/auth-service';
 
 type DeploymentRecord = {
   _id: string;
@@ -71,6 +69,7 @@ export default function DeploymentsPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const deploymentId = searchParams.get('deploymentId') || '';
+  const [connectedUserId, setConnectedUserId] = useState<string>('');
   const [deployments, setDeployments] = useState<DeploymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -95,16 +94,31 @@ export default function DeploymentsPage() {
       }
 
       try {
-        const response = await deploymentService.getAll();
+        let currentUserId = connectedUserId;
+        if (!currentUserId) {
+          const meResponse = await authService.getMe();
+          const meData = meResponse?.data as any;
+          currentUserId = String(meData?.user?.id || '');
+          if (!currentUserId) {
+            throw new Error('Unable to resolve connected GitHub user. Please sign in again.');
+          }
+          setConnectedUserId(currentUserId);
+        }
+
+        const response = await deploymentService.getAll({ userId: currentUserId });
         const raw = response?.data?.data || response?.data?.deployments || response?.data || [];
         const nextDeployments = Array.isArray(raw) ? raw : [];
 
         if (cancelled) return;
-        setDeployments(nextDeployments.sort((a: DeploymentRecord, b: DeploymentRecord) => {
-          const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
-          const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
-          return bTime - aTime;
-        }));
+        const userDeployments = nextDeployments
+          .filter((item: DeploymentRecord) => String((item as any)?.userId || '') === String(currentUserId))
+          .sort((a: DeploymentRecord, b: DeploymentRecord) => {
+            const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+            const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+            return bTime - aTime;
+          });
+
+        setDeployments(userDeployments);
         setError(null);
       } catch (fetchError: any) {
         if (cancelled) return;
@@ -124,7 +138,7 @@ export default function DeploymentsPage() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [connectedUserId]);
 
   const filteredDeployments = useMemo(() => {
     return deployments.filter((deployment) => {
@@ -164,9 +178,25 @@ export default function DeploymentsPage() {
                 setRefreshing(true);
                 void (async () => {
                   try {
-                    const response = await deploymentService.getAll();
+                    let currentUserId = connectedUserId;
+                    if (!currentUserId) {
+                      const meResponse = await authService.getMe();
+                      const meData = meResponse?.data as any;
+                      currentUserId = String(meData?.user?.id || '');
+                      setConnectedUserId(currentUserId);
+                    }
+
+                    const response = await deploymentService.getAll({ userId: currentUserId });
                     const raw = response?.data?.data || response?.data?.deployments || response?.data || [];
-                    setDeployments(Array.isArray(raw) ? raw : []);
+                    const nextDeployments = Array.isArray(raw) ? raw : [];
+                    const userDeployments = nextDeployments
+                      .filter((item: DeploymentRecord) => String((item as any)?.userId || '') === String(currentUserId))
+                      .sort((a: DeploymentRecord, b: DeploymentRecord) => {
+                        const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+                        const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+                        return bTime - aTime;
+                      });
+                    setDeployments(userDeployments);
                     setError(null);
                   } catch (refreshError: any) {
                     setError(refreshError?.response?.data?.error || refreshError?.message || 'Unable to refresh deployments.');
