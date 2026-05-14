@@ -17,7 +17,7 @@ router.use(authMiddleware);
  * Start new deployment
  * POST /api/deploy/start
  */
-router.post('/start', deploymentValidator.validateStartDeployment, async (req, res) => {
+router.post('/start', deploymentValidator.validateStartDeployment.bind(deploymentValidator), async (req, res) => {
   await deploymentController.startDeployment(req, res);
 });
 

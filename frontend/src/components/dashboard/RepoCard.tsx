@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ExternalLink, Github, Lock, CalendarClock, CheckCircle2, PlugZap, Rocket, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { ExternalLink, Github, Lock, CalendarClock, CheckCircle2, PlugZap, Rocket, Loader2, AlertCircle, CheckCircle, Cloud } from 'lucide-react';
 import { githubService } from '../../services/github-service'; 
 
 export type Repo = {
@@ -22,7 +22,8 @@ const RepoCard: React.FC<{
   onConnect?: (repo: Repo) => void;
   onRemove?: (repo: Repo) => void;
   onDeploy?: (repo: Repo) => void;
-}> = ({ repo, selected = false, onConnect, onRemove, onDeploy }) => {
+  onAzureDeploy?: (repo: Repo) => void;
+}> = ({ repo, selected = false, onConnect, onRemove, onDeploy, onAzureDeploy }) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -172,6 +173,15 @@ const RepoCard: React.FC<{
               >
                 <Rocket className="h-4 w-4" />
                 Deploy
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onAzureDeploy?.(repo)}
+                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold bg-blue-500/15 text-blue-200 hover:bg-blue-500/25 transition"
+              >
+                <Cloud className="h-4 w-4" />
+                Azure Deploy
               </button>
             </>
           ) : (

@@ -9,16 +9,7 @@ interface AuthContextType {
   loading: boolean;
 }
 
-declare global {
-  interface Window {
-    __cloudopsAuthContext?: React.Context<AuthContextType | undefined>;
-  }
-}
-
-const AuthContext =
-  window.__cloudopsAuthContext || createContext<AuthContextType | undefined>(undefined);
-
-window.__cloudopsAuthContext = AuthContext;
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const decodeJWT = (token: string) => {
   try {

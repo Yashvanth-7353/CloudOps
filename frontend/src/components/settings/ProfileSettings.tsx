@@ -1,21 +1,13 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { BadgeCheck, UserCircle2 } from 'lucide-react';
-import { SETTINGS_KEYS, readStoredValue, writeStoredValue } from './settings-storage';
-
-type ProfileSettingsValue = {
-  name: string;
-  email: string;
-};
-
-const DEFAULT_PROFILE: ProfileSettingsValue = {
-  name: 'Avery Carter',
-  email: 'avery@cloudops.dev',
-};
+import { useAuth } from '@/app/providers/auth-provider';
+import { SETTINGS_KEYS, writeStoredValue } from './settings-storage';
 
 const ProfileSettings: React.FC = () => {
-  const [name, setName] = useState(() => readStoredValue(SETTINGS_KEYS.PROFILE, DEFAULT_PROFILE).name);
-  const [email, setEmail] = useState(() => readStoredValue(SETTINGS_KEYS.PROFILE, DEFAULT_PROFILE).email);
+  const { user } = useAuth();
+  const [name, setName] = useState(user?.username || user?.name || user?.login || '');
+  const [email, setEmail] = useState(user?.email || '');
   const [saved, setSaved] = useState(false);
 
   const saveProfile = () => {
@@ -32,13 +24,17 @@ const ProfileSettings: React.FC = () => {
           <p className="text-sm text-white/60">Manage your personal account details.</p>
         </div>
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/6 text-cyan-300">
-          <UserCircle2 className="h-5 w-5" />
+          {user?.avatar ? (
+            <img src={user.avatar} alt={name} className="h-11 w-11 rounded-xl object-cover" />
+          ) : (
+            <UserCircle2 className="h-5 w-5" />
+          )}
         </div>
       </div>
 
       <div className="space-y-4">
         <label className="block">
-          <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-white/50">Display name</span>
+          <span className="mb-2 block text-xs uppercase tracking-[0.2em] text-white/50">GitHub username</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -53,6 +49,7 @@ const ProfileSettings: React.FC = () => {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onBlur={saveProfile}
+            placeholder="Not provided by GitHub"
             className="w-full rounded-xl border border-white/8 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-white/30 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20"
           />
         </label>

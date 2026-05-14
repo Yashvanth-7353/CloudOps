@@ -1,0 +1,6 @@
+azure-storage-blob
+python-dotenv
+azure-identity
+azure-mgmt-containerinstance
+azure-mgmt-resource
+azure-mgmt-advisor

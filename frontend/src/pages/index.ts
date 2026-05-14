@@ -11,4 +11,5 @@ export { default as Analytics } from './Analytics';
 export { default as Billing } from './Billing';
 export { default as Pricing } from './Pricing';
 export { default as Settings } from './Settings';
+export { default as Profile } from './Profile';
 

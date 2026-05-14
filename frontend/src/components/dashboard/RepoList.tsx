@@ -7,6 +7,7 @@ import { axiosClient } from '@/services/api/axios-client';
 import { useAuth } from '@/app/providers/auth-provider';
 import { useNavigate } from 'react-router-dom';
 import { Github, Loader2, Search, Plus, Trash2, X } from 'lucide-react';
+import { startAzureDeploy } from '@/services/azure-deploy-service';
 
 const STORAGE_KEY = 'cloudops_connected_repositories';
 
@@ -44,6 +45,15 @@ const RepoList: React.FC = () => {
   const [envVars, setEnvVars] = useState<EnvDraft[]>([{ id: 1, key: 'NODE_ENV', value: 'production' }]);
   const [isStartingDeployment, setIsStartingDeployment] = useState(false);
   const [startDeploymentError, setStartDeploymentError] = useState<string | null>(null);
+
+  // Azure deploy state
+  const [azureDeployingRepo, setAzureDeployingRepo] = useState<Repo | null>(null);
+  const [azureLogs, setAzureLogs] = useState<string[]>([]);
+  const [azureStatus, setAzureStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [azureResult, setAzureResult] = useState<{ url: string } | null>(null);
+  const [azureError, setAzureError] = useState<string | null>(null);
+  const azureStopRef = React.useRef<(() => void) | null>(null);
+  const azureLogsEndRef = React.useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     try {
@@ -124,6 +134,48 @@ const RepoList: React.FC = () => {
   const handleDeploy = (repo: Repo) => {
     setDeployingRepo(repo);
     setEnvVars((current) => current.length > 0 ? current : [{ id: Date.now(), key: 'NODE_ENV', value: 'production' }]);
+  };
+
+  const handleAzureDeploy = (repo: Repo) => {
+    setAzureDeployingRepo(repo);
+    setAzureLogs([]);
+    setAzureStatus('idle');
+    setAzureResult(null);
+    setAzureError(null);
+  };
+
+  const startAzureDeployment = () => {
+    if (!azureDeployingRepo) return;
+    setAzureLogs([]);
+    setAzureStatus('running');
+    setAzureError(null);
+    setAzureResult(null);
+
+    const stop = startAzureDeploy(
+      azureDeployingRepo.cloneUrl,
+      azureDeployingRepo.name,
+      (line) => {
+        setAzureLogs((prev) => [...prev, line]);
+        setTimeout(() => azureLogsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+      },
+      (result) => {
+        setAzureStatus('done');
+        setAzureResult({ url: result.url });
+      },
+      (msg) => {
+        setAzureStatus('error');
+        setAzureError(msg);
+      },
+    );
+    azureStopRef.current = stop;
+  };
+
+  const closeAzureModal = () => {
+    if (azureStatus === 'running') {
+      azureStopRef.current?.();
+    }
+    setAzureDeployingRepo(null);
+    setAzureStatus('idle');
   };
 
   const addEnvVar = () => {
@@ -329,7 +381,7 @@ const RepoList: React.FC = () => {
             <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {connectedRepos.map((repo) => (
                 <motion.div key={repo.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}>
-                  <RepoCard repo={repo} selected onRemove={handleRemove} onDeploy={handleDeploy} />
+                  <RepoCard repo={repo} selected onRemove={handleRemove} onDeploy={handleDeploy} onAzureDeploy={handleAzureDeploy} />
                 </motion.div>
               ))}
             </motion.div>
@@ -342,6 +394,92 @@ const RepoList: React.FC = () => {
       </section>
 
       {typeof document !== 'undefined' && deployModal ? createPortal(deployModal, document.body) : null}
+
+  {/* Azure Deploy Modal */}
+  {typeof document !== 'undefined' && azureDeployingRepo ? createPortal(
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 px-4 py-6"
+      >
+        <motion.div
+          initial={{ opacity: 0, y: 24, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 24, scale: 0.98 }}
+          className="relative z-[10000] w-full max-w-2xl rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.96)] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.5)]"
+        >
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-2xl font-semibold text-white">Azure Deploy — {azureDeployingRepo.name}</h3>
+              <p className="mt-1 text-sm text-white/60">Deploys to Azure Container Instances via ACR.</p>
+            </div>
+            <button
+              type="button"
+              onClick={closeAzureModal}
+              className="rounded-xl border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-white/10"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Log terminal */}
+          <div className="h-64 overflow-y-auto rounded-xl border border-white/10 bg-black/60 p-3 font-mono text-xs text-green-300 space-y-0.5">
+            {azureLogs.length === 0 && azureStatus === 'idle' && (
+              <p className="text-white/40">Press "Start Azure Deploy" to begin...</p>
+            )}
+            {azureLogs.map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
+            <div ref={azureLogsEndRef} />
+          </div>
+
+          {azureStatus === 'done' && azureResult && (
+            <div className="mt-4 rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+              ✅ Deployment complete!{' '}
+              <a href={azureResult.url} target="_blank" rel="noreferrer" className="underline">
+                {azureResult.url}
+              </a>
+            </div>
+          )}
+
+          {azureStatus === 'error' && azureError && (
+            <div className="mt-4 rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+              ❌ {azureError}
+            </div>
+          )}
+
+          <div className="mt-4 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={closeAzureModal}
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80 transition hover:bg-white/10"
+            >
+              {azureStatus === 'done' || azureStatus === 'error' ? 'Close' : 'Cancel'}
+            </button>
+            {(azureStatus === 'idle' || azureStatus === 'error') && (
+              <button
+                type="button"
+                onClick={startAzureDeployment}
+                className="rounded-xl bg-blue-500/20 px-4 py-3 text-sm font-semibold text-blue-200 transition hover:bg-blue-500/30"
+              >
+                Start Azure Deploy
+              </button>
+            )}
+            {azureStatus === 'running' && (
+              <button disabled className="inline-flex items-center gap-2 rounded-xl bg-blue-500/10 px-4 py-3 text-sm font-semibold text-blue-200/50 cursor-not-allowed">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Deploying...
+              </button>
+            )}
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>,
+    document.body
+  ) : null}
 
       {showBrowser && (
         <section className="rounded-2xl border border-white/8 bg-[rgba(10,14,24,0.62)] backdrop-blur-md p-5 shadow-[0_20px_60px_rgba(2,6,23,0.35)]">
@@ -378,6 +516,7 @@ const RepoList: React.FC = () => {
                       onConnect={handleConnect}
                       onRemove={handleRemove}
                       onDeploy={handleDeploy}
+                      onAzureDeploy={handleAzureDeploy}
                     />
                   </motion.div>
                 ))}

@@ -1,7 +1,8 @@
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense } from 'react';
 import { DashboardLayout } from '@/components/layout';
 import { motion } from 'framer-motion';
-import { Activity, Zap, AlertCircle, TrendingUp } from 'lucide-react';
+import { Github, Link2, Package, Bell } from 'lucide-react';
+import { useAnalyticsDashboard } from '@/services/analytics-service';
 
 // Lazy load RepoList
 const RepoList = React.lazy(() => import('@/components/dashboard/RepoList'));
@@ -12,11 +13,34 @@ const RepoList = React.lazy(() => import('@/components/dashboard/RepoList'));
  */
 
 export default function DashboardPage() {
+  const { data: analyticsResponse, isLoading } = useAnalyticsDashboard();
+  const analyticsData = analyticsResponse?.data || {};
+
   const stats = [
-    { icon: Activity, label: 'Active Deployments', value: '12', color: 'text-accent' },
-    { icon: Zap, label: 'Total Uptime', value: '99.9%', color: 'text-primary' },
-    { icon: TrendingUp, label: 'Performance', value: '+24%', color: 'text-success' },
-    { icon: AlertCircle, label: 'Alerts', value: '2', color: 'text-warning' },
+    {
+      icon: Github,
+      label: 'GitHub Repos',
+      value: isLoading ? 'Loading...' : String(analyticsData.totalGitHubRepos ?? 0),
+      color: 'text-primary',
+    },
+    {
+      icon: Link2,
+      label: 'Connected Repos',
+      value: isLoading ? 'Loading...' : String(analyticsData.connectedRepos ?? 0),
+      color: 'text-success',
+    },
+    {
+      icon: Package,
+      label: 'Projects Deployed',
+      value: isLoading ? 'Loading...' : String(analyticsData.totalProjectsDeployed ?? 0),
+      color: 'text-warning',
+    },
+    {
+      icon: Bell,
+      label: 'Alerts',
+      value: '3',
+      color: 'text-destructive',
+    },
   ];
 
   return (

@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
 
-# Environment variables
+# Environment variables — never commit real secrets
 .env
 .env.local
 .env.development
@@ -13,8 +13,14 @@ dist/
 build/
 
 # Logs
+logs/
 *.log
 npm-debug.log*
+yarn-debug.log*
+
+# Temp / clone dirs created during deployments
+temp/
+tmp/
 
 # OS
 .DS_Store
@@ -24,5 +30,16 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
 # Coverage
 coverage/
+
+# Qodo
+.qodo/

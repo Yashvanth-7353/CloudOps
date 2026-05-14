@@ -36,12 +36,61 @@ const getDeploymentStatus = (req, res) => {
     });
 };
 
-const getAnalyticsDashboard = (req, res) => {
-    res.json({
-        deployments: 0,
-        uptime: '99.9%',
-        totalCost: 0,
-    });
+const Deployment = require('../models/Deployment');
+const Project = require('../models/Project');
+const axios = require('axios');
+
+const getAnalyticsDashboard = async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        const githubToken = req.user?.githubToken;
+
+        // Get deployment counts from MongoDB
+        const totalDeployments = await Deployment.countDocuments({ userId });
+        const activeDeployments = await Deployment.countDocuments({
+            userId,
+            status: { $in: ['pending', 'cloning', 'detecting', 'building', 'pushing', 'deploying'] },
+        });
+
+        // Get project/repo counts from MongoDB
+        const totalProjectsDeployed = await Project.countDocuments({ userId });
+
+        // Get total GitHub repos (if token available)
+        let totalGitHubRepos = 0;
+        if (githubToken) {
+            try {
+                const response = await axios.get('https://api.github.com/user/repos', {
+                    headers: {
+                        Authorization: `Bearer ${githubToken}`,
+                        Accept: 'application/vnd.github+json',
+                        'User-Agent': 'CloudOps-App',
+                    },
+                    params: {
+                        visibility: 'all',
+                        affiliation: 'owner,collaborator,organization_member',
+                        per_page: 100,
+                    },
+                });
+                totalGitHubRepos = response.data.length;
+            } catch (error) {
+                console.warn('Failed to fetch GitHub repos count:', error.message);
+                totalGitHubRepos = 0;
+            }
+        }
+
+        res.json({
+            deployments: totalDeployments,
+            activeDeployments,
+            totalGitHubRepos,
+            connectedRepos: totalProjectsDeployed,
+            totalProjectsDeployed,
+            uptime: '99.9%',
+            totalCost: 0,
+        });
+    } catch (error) {
+        console.error('Analytics dashboard error:', error);
+        res.status(500).json({ error: 'Unable to load analytics dashboard' });
+    }
 };
 
 const getAnalyticsDeployments = (req, res) => {

@@ -1,5 +1,6 @@
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 
 const githubAuthRedirect = (req, res) => {
     const state = Math.random().toString(36).substring(7);
@@ -38,14 +39,31 @@ const githubCallbackHandler = async (req, res) => {
             }
         });
 
-        const user = userResponse.data;
+        const githubUser = userResponse.data;
+
+        // Upsert user into MongoDB
+        let user = await User.findOneAndUpdate(
+            { githubId: String(githubUser.id) },
+            {
+                githubId: String(githubUser.id),
+                username: githubUser.login,
+                email: githubUser.email || `${githubUser.login}@github.noemail`,
+                avatarUrl: githubUser.avatar_url,
+                accessToken,
+                lastLogin: new Date(),
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
+        console.log(`✅ User saved to MongoDB: ${user.username} (${user._id})`);
 
         const jwtToken = jwt.sign(
             {
-                id: user.id,
-                username: user.login,
-                email: user.email,
-                avatar: user.avatar_url,
+                id: String(githubUser.id),
+                dbId: String(user._id),
+                username: githubUser.login,
+                email: githubUser.email,
+                avatar: githubUser.avatar_url,
                 githubToken: accessToken,
             },
             process.env.JWT_SECRET,

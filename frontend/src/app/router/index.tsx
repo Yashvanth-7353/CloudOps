@@ -17,6 +17,8 @@ const AnalyticsPage = lazy(() => import('@/pages/Analytics'));
 const BillingPage = lazy(() => import('@/pages/Billing'));
 const PricingPage = lazy(() => import('@/pages/Pricing'));
 const SettingsPage = lazy(() => import('@/pages/Settings'));
+const ProfilePage = lazy(() => import('@/pages/Profile'));
+const DeployedProjectsPage = lazy(() => import('@/pages/DeployedProjects'));
 const DeploymentLogsPage = lazy(() => import('@/pages/DeploymentLogs'));
 const LiveProjectsPage = lazy(() => import('@/pages/LiveProjects'));
 const DocsPage = lazy(() => import('@/pages/Docs'));
@@ -59,7 +61,7 @@ function Routes() {
         animate="animate"
         exit="exit"
         transition={pageTransition}
-        className="relative z-10"
+        className=""
       >
         <Suspense fallback={<PageLoader />}>
           <RouterRoutes location={location} key={location.pathname}>
@@ -72,6 +74,8 @@ function Routes() {
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/billing" element={<BillingPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/deployed-projects" element={<DeployedProjectsPage />} />
               <Route path="/deployments" element={<DeploymentLogsPage />} />
               <Route path="/deployment-logs" element={<DeploymentLogsPage />} />
               <Route path="/live-projects" element={<LiveProjectsPage />} />
