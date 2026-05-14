@@ -4,16 +4,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
-  CalendarDays,
-  CheckCircle2,
   Clock3,
   ExternalLink,
   GitBranch,
   Globe2,
   HardDriveDownload,
   Loader2,
-  Server,
-  XCircle,
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
 import { deploymentService } from '@/services/auth-service';
@@ -29,7 +25,8 @@ type DeploymentLog = {
 };
 
 type DeploymentDetails = {
-  _id: string;
+  _id?: string;
+  deploymentId?: string;
   projectId?: string | null;
   userId?: string;
   repositoryName?: string;
@@ -42,6 +39,54 @@ type DeploymentDetails = {
   startedAt?: string;
   completedAt?: string;
   totalTime?: number;
+  createdAt?: string;
+  commitHash?: string;
+  commitShortHash?: string;
+  commitMessage?: string;
+  commitAuthor?: string;
+  commitDate?: string;
+  dockerImageUri?: string;
+  dockerImageTag?: string;
+  infrastructure?: {
+    provider?: string;
+    targetType?: string;
+    region?: string;
+    target?: {
+      type?: string;
+      awsRegion?: string;
+      instanceType?: string;
+      keyName?: string | null;
+      securityGroupIds?: string[];
+      vpcId?: string | null;
+      host?: string;
+      user?: string;
+      publicHost?: string | null;
+      publicUrl?: string | null;
+    };
+    ecr?: {
+      repositoryArn?: string | null;
+      repositoryName?: string | null;
+      repositoryUri?: string | null;
+      imageUri?: string | null;
+      imageTag?: string | null;
+    };
+    ec2?: {
+      instanceId?: string | null;
+      publicIp?: string | null;
+      privateIp?: string | null;
+      instanceType?: string | null;
+      keyName?: string | null;
+      securityGroupIds?: string[];
+      vpcId?: string | null;
+    };
+    container?: {
+      name?: string | null;
+      imageName?: string | null;
+      port?: number | null;
+    };
+    liveUrl?: string;
+    deployState?: string;
+  };
   error?: {
     message?: string;
     phase?: string;
@@ -108,6 +153,26 @@ export default function DeploymentDetailPage() {
   const [logs, setLogs] = useState<DeploymentLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [bringingDown, setBringingDown] = useState(false);
+  const [bringDownConfirmOpen, setBringDownConfirmOpen] = useState(false);
+
+  const deploymentKey = deployment?._id || deployment?.deploymentId || '';
+  const metadata = (deployment?.metadata || {}) as Record<string, any>;
+  const infrastructure = (deployment?.infrastructure || metadata.infrastructure || {}) as NonNullable<DeploymentDetails['infrastructure']> & Record<string, any>;
+  const commitHash = deployment?.commitShortHash || deployment?.commitHash || deployment?.metadata?.repositoryInfo?.latestCommit?.shortHash || 'Unknown';
+  const fullCommitHash = deployment?.commitHash || deployment?.metadata?.repositoryInfo?.latestCommit?.hash || 'Unknown';
+  const commitMessage = deployment?.commitMessage || deployment?.metadata?.repositoryInfo?.latestCommit?.message || 'Unknown';
+  const commitAuthor = deployment?.commitAuthor || deployment?.metadata?.repositoryInfo?.latestCommit?.author || 'Unknown';
+  const commitDate = deployment?.commitDate || deployment?.metadata?.repositoryInfo?.latestCommit?.date;
+  const ecrRepository = infrastructure?.ecr?.repositoryName || deployment?.metadata?.ecrRepository || 'Pending';
+  const ecrRepositoryUri = infrastructure?.ecr?.repositoryUri || 'Pending';
+  const ecrImageUri = infrastructure?.ecr?.imageUri || deployment?.dockerImageUri || deployment?.metadata?.ecrImageUri || 'Pending';
+  const ec2InstanceId = infrastructure?.ec2?.instanceId || deployment?.metadata?.ec2InstanceId || 'Pending';
+  const ec2PublicIp = infrastructure?.ec2?.publicIp || deployment?.metadata?.ec2PublicIp || 'Pending';
+  const ec2PrivateIp = infrastructure?.ec2?.privateIp || deployment?.metadata?.ec2PrivateIp || 'Pending';
+  const containerPort = infrastructure?.container?.port || deployment?.metadata?.containerPort || 80;
+  const containerName = infrastructure?.container?.name || deployment?.metadata?.containerName || 'Pending';
+  const liveInfrastructureUrl = infrastructure?.liveUrl || deployment?.publicUrl || deployment?.metadata?.liveUrl;
 
   useEffect(() => {
     if (!id) {
@@ -127,8 +192,10 @@ export default function DeploymentDetailPage() {
 
         if (disposed) return;
 
-        const nextDeployment = statusResponse?.data?.deployment || statusResponse?.data?.data || statusResponse?.data || null;
-        const nextLogs = Array.isArray(logsResponse?.data?.logs) ? logsResponse.data.logs : [];
+        const statusPayload = statusResponse.data as any;
+        const logsPayload = logsResponse.data as any;
+        const nextDeployment = statusPayload?.deployment || statusPayload?.data || statusPayload || null;
+        const nextLogs = Array.isArray(logsPayload?.logs) ? logsPayload.logs : [];
 
         setDeployment(nextDeployment);
         setLogs([...nextLogs].sort((a: DeploymentLog, b: DeploymentLog) => {
@@ -211,6 +278,40 @@ export default function DeploymentDetailPage() {
   const liveUrl = deployment?.publicUrl || deployment?.metadata?.liveUrl;
   const status = deployment?.status || 'pending';
   const badgeClass = statusStyles[status] || statusStyles.pending;
+  const deploymentInstanceId = infrastructure?.ec2?.instanceId || (deployment?.metadata as any)?.ec2InstanceId || '';
+
+  const handleBringDown = async () => {
+    if (!deploymentInstanceId) {
+      setError('No EC2 instance id found for this deployment.');
+      return;
+    }
+
+    try {
+      setBringingDown(true);
+      setBringDownConfirmOpen(false);
+
+      await deploymentService.terminateAwsDeployment(deploymentInstanceId, {
+        repositoryName: deployment?.repositoryName,
+        cleanupECR: true,
+      });
+
+      setDeployment((current) =>
+        current
+          ? {
+              ...current,
+              status: 'stopped',
+              phase: 'cancelled',
+              publicUrl: undefined,
+            }
+          : current
+      );
+    } catch (err: any) {
+      console.error('Bring down error:', err);
+      setError(err?.response?.data?.error || err?.message || 'Failed to bring down deployment');
+    } finally {
+      setBringingDown(false);
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -233,14 +334,14 @@ export default function DeploymentDetailPage() {
           )}
 
           {loading && !deployment ? (
-            <div className="mt-8 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
               <div className="h-[560px] animate-pulse rounded-3xl border border-white/10 bg-white/5" />
               <div className="h-[560px] animate-pulse rounded-3xl border border-white/10 bg-white/5" />
             </div>
           ) : deployment ? (
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="space-y-6">
-                <div className="rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+              <div className="min-w-0 space-y-6">
+                <div className="min-w-0 rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div>
                       <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-white/55">
@@ -279,18 +380,52 @@ export default function DeploymentDetailPage() {
                         Live URL will appear after the deployment finishes.
                       </div>
                     )}
+                    {deployment.status === 'success' && (
+                      <div className="mt-3 space-y-3">
+                        <button
+                          type="button"
+                          disabled={bringingDown}
+                          onClick={() => setBringDownConfirmOpen(true)}
+                          className="ml-3 inline-flex items-center gap-2 rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm font-medium text-rose-200 transition hover:bg-rose-500/15"
+                        >
+                          {bringingDown ? 'Bringing down…' : 'Bring Down'}
+                        </button>
+                        {bringDownConfirmOpen && !bringingDown && (
+                          <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-4 text-sm text-rose-100">
+                            <div className="font-medium">Terminate the EC2 instance and clean up the ECR repository?</div>
+                            <div className="mt-3 flex flex-wrap gap-3">
+                              <button
+                                type="button"
+                                onClick={() => void handleBringDown()}
+                                className="rounded-xl bg-rose-500 px-4 py-2 font-medium text-white transition hover:bg-rose-400"
+                              >
+                                Confirm bring down
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setBringDownConfirmOpen(false)}
+                                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 font-medium text-white/80 transition hover:bg-white/10"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
-                  <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     {[
-                      { label: 'Deployment ID', value: deployment._id },
+                      { label: 'Deployment ID', value: deploymentKey },
                       { label: 'Project ID', value: deployment.projectId || 'Not linked' },
                       { label: 'Framework', value: deployment.framework || 'auto-detected' },
                       { label: 'Started at', value: formatDate(deployment.startedAt || deployment.createdAt) },
                       { label: 'Completed at', value: formatDate(deployment.completedAt) },
                       { label: 'Phase', value: deployment.phase || 'preparation' },
+                      { label: 'Live URL', value: liveInfrastructureUrl || 'Pending' },
                     ].map((item) => (
-                      <div key={item.label} className="rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
+                      <div key={item.label} className="min-w-0 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
                         <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">{item.label}</div>
                         <div className="mt-2 break-words text-sm font-medium text-white">{item.value}</div>
                       </div>
@@ -298,7 +433,7 @@ export default function DeploymentDetailPage() {
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
+                <div className="min-w-0 rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
                   <h2 className="text-lg font-semibold text-white">Progress</h2>
                   <div className="mt-4">
                     <LiveProgressBar steps={STEPS} current={currentStep} progress={progress} />
@@ -308,7 +443,7 @@ export default function DeploymentDetailPage() {
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
+                <div className="min-w-0 rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
                   <h2 className="text-lg font-semibold text-white">Deployment logs</h2>
                   <div className="mt-4">
                     {loading ? (
@@ -323,10 +458,10 @@ export default function DeploymentDetailPage() {
                 </div>
               </div>
 
-              <div className="space-y-6">
-                <div className="rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
+              <div className="min-w-0 space-y-6">
+                <div className="min-w-0 rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
                   <h2 className="text-lg font-semibold text-white">Project info</h2>
-                  <div className="mt-4 space-y-3">
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                     {[
                       { label: 'Repository name', value: deployment.repositoryName || 'Unknown' },
                       { label: 'Repository URL', value: deployment.repositoryUrl || 'Unknown' },
@@ -334,7 +469,7 @@ export default function DeploymentDetailPage() {
                       { label: 'User ID', value: deployment.userId || 'Unknown' },
                       { label: 'Project ID', value: deployment.projectId || 'Not linked' },
                     ].map((item) => (
-                      <div key={item.label} className="rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
+                      <div key={item.label} className="min-w-0 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
                         <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">{item.label}</div>
                         <div className="mt-2 break-words text-sm text-white">{item.value}</div>
                       </div>
@@ -342,26 +477,52 @@ export default function DeploymentDetailPage() {
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
-                  <h2 className="text-lg font-semibold text-white">Infrastructure</h2>
-                  <div className="mt-4 space-y-3 text-sm text-white/75">
+                <div className="min-w-0 rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
+                  <h2 className="text-lg font-semibold text-white">Source and build</h2>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {[
-                      { label: 'EC2 instance', value: deployment.metadata?.ec2InstanceId || 'Pending' },
-                      { label: 'Public IP', value: deployment.metadata?.ec2PublicIp || 'Pending' },
-                      { label: 'Private IP', value: deployment.metadata?.ec2PrivateIp || 'Pending' },
-                      { label: 'ECR image', value: deployment.metadata?.ecrImageUri || deployment.metadata?.ecrUri || 'Pending' },
-                      { label: 'Container port', value: deployment.metadata?.containerPort || '80' },
+                      { label: 'Last commit', value: `${commitHash} ${fullCommitHash !== commitHash ? `(${fullCommitHash})` : ''}`.trim() },
+                      { label: 'Commit author', value: commitAuthor },
+                      { label: 'Commit message', value: commitMessage },
+                      { label: 'Commit date', value: formatDate(commitDate) },
+                      { label: 'Docker image tag', value: deployment.dockerImageTag || infrastructure?.ecr?.imageTag || 'Pending' },
+                      { label: 'Docker image URI', value: ecrImageUri },
                     ].map((item) => (
-                      <div key={item.label} className="flex items-start justify-between gap-4 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
-                        <span className="text-white/45">{item.label}</span>
-                        <span className="text-right font-medium text-white">{item.value}</span>
+                      <div key={item.label} className="min-w-0 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
+                        <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">{item.label}</div>
+                        <div className="mt-2 break-all text-sm font-medium text-white">{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="min-w-0 rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
+                  <h2 className="text-lg font-semibold text-white">Infrastructure</h2>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {[
+                      { label: 'Provider', value: infrastructure?.provider || 'aws' },
+                      { label: 'Region', value: infrastructure?.region || metadata?.target?.awsRegion || 'Pending' },
+                      { label: 'EC2 instance', value: ec2InstanceId },
+                      { label: 'Instance type', value: infrastructure?.ec2?.instanceType || metadata?.target?.instanceType || 'Pending' },
+                      { label: 'Public IP', value: ec2PublicIp },
+                      { label: 'Private IP', value: ec2PrivateIp },
+                      { label: 'ECR repository', value: ecrRepository },
+                      { label: 'ECR repository URI', value: ecrRepositoryUri },
+                      { label: 'Container name', value: containerName },
+                      { label: 'Container port', value: containerPort },
+                      { label: 'Live URL', value: liveInfrastructureUrl || 'Pending' },
+                      { label: 'Deploy state', value: infrastructure?.deployState || 'Pending' },
+                    ].map((item) => (
+                      <div key={item.label} className="min-w-0 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
+                        <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">{item.label}</div>
+                        <div className="mt-2 break-all text-sm font-medium text-white">{item.value}</div>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 {deployment.error?.message && (
-                  <div className="rounded-3xl border border-rose-400/20 bg-rose-500/10 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
+                  <div className="min-w-0 rounded-3xl border border-rose-400/20 bg-rose-500/10 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
                     <div className="flex items-center gap-2 text-rose-200">
                       <AlertTriangle className="h-5 w-5" />
                       <h2 className="text-lg font-semibold">Failure details</h2>

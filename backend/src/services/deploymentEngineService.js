@@ -70,6 +70,39 @@ class DeploymentEngineService {
     return { type: 'local' };
   }
 
+  syncInfrastructure(deployment, patch = {}) {
+    const currentInfrastructure = deployment.infrastructure && typeof deployment.infrastructure.toObject === 'function'
+      ? deployment.infrastructure.toObject()
+      : (deployment.infrastructure || {});
+
+    const nextInfrastructure = {
+      ...currentInfrastructure,
+      ...patch,
+      target: patch.target || currentInfrastructure.target || null,
+      ecr: {
+        ...(currentInfrastructure.ecr || {}),
+        ...(patch.ecr || {}),
+      },
+      ec2: {
+        ...(currentInfrastructure.ec2 || {}),
+        ...(patch.ec2 || {}),
+      },
+      container: {
+        ...(currentInfrastructure.container || {}),
+        ...(patch.container || {}),
+      },
+    };
+
+    deployment.infrastructure = nextInfrastructure;
+    deployment.metadata = {
+      ...(deployment.metadata || {}),
+      infrastructure: nextInfrastructure,
+      target: nextInfrastructure.target,
+    };
+
+    return nextInfrastructure;
+  }
+
   toDeploymentRoom(deployment) {
     return `deployment:${deployment._id.toString()}`;
   }
@@ -216,6 +249,16 @@ class DeploymentEngineService {
       triggeredBy,
       webhookId,
       startedAt: new Date(),
+      infrastructure: {
+        provider: target.type || 'local',
+        targetType: target.type || 'local',
+        region: target.awsRegion || process.env.AWS_REGION || null,
+        target,
+        ecr: {},
+        ec2: {},
+        container: {},
+        deployState: 'queued',
+      },
       metadata: {
         target,
         queueState: 'queued',
@@ -438,7 +481,7 @@ class DeploymentEngineService {
       buildDir = path.join(os.tmpdir(), `cloudops-${deploymentId}`);
       await fs.mkdir(buildDir, { recursive: true });
 
-      const target = this.normalizeTarget(deployment.metadata?.target || {});
+      const target = this.normalizeTarget(deployment.metadata?.target || deployment.infrastructure?.target || {});
 
       await this.cloneAndPrepare(deployment, buildDir, io);
       const prepResult = await this.detectAndGenerate(deployment, buildDir, io);
@@ -461,8 +504,16 @@ class DeploymentEngineService {
         const remote = await this.prepareRemoteWorkspace(deployment, buildDir, target);
         buildContext = remote.remoteWorkspace;
         remoteWorkspace = remote.remoteWorkspace;
+        this.syncInfrastructure(deployment, {
+          provider: 'ssh',
+          targetType: 'ssh',
+          target,
+          container: {
+            name: containerName,
+            imageName,
+          },
+        });
         deployment.metadata.remoteWorkspace = remoteWorkspace;
-        deployment.metadata.target = target;
         await this.saveDeployment(deployment);
       }
 
@@ -493,8 +544,25 @@ class DeploymentEngineService {
           (io2, dep, source, level, message, data) => this.emitLog(io2, dep, source, level, message, data)
         );
 
-        deployment.metadata.ecrImageUri = ecrResult.imageUri;
-        deployment.metadata.ecrRepository = ecrResult.repositoryName;
+        this.syncInfrastructure(deployment, {
+          provider: 'aws',
+          targetType: 'aws',
+          region: target.awsRegion || process.env.AWS_REGION || null,
+          ecr: {
+            repositoryArn: ecrResult.repositoryArn || null,
+            repositoryName: ecrResult.repositoryName,
+            repositoryUri: ecrResult.ecrUri || ecrResult.repositoryUri || null,
+            imageUri: ecrResult.imageUri,
+            imageTag: ecrResult.imageTag,
+          },
+          container: {
+            name: containerName,
+            imageName,
+            port: containerPort,
+          },
+        });
+        deployment.dockerImageUri = ecrResult.imageUri;
+        deployment.dockerImageTag = ecrResult.imageTag;
         deployment.updateStatus('deploying', 'ec2_launch');
         await this.saveDeployment(deployment);
 
@@ -514,15 +582,40 @@ class DeploymentEngineService {
           }
         );
 
-        deployment.metadata.ec2InstanceId = ec2Result.instanceId;
-        deployment.metadata.ec2PublicIp = ec2Result.publicIp;
-        deployment.metadata.ec2PrivateIp = ec2Result.privateIp;
-        deployment.metadata.liveUrl = ec2Result.liveUrl;
+        this.syncInfrastructure(deployment, {
+          provider: 'aws',
+          targetType: 'aws',
+          region: target.awsRegion || process.env.AWS_REGION || null,
+          ecr: {
+            repositoryArn: ecrResult.repositoryArn || null,
+            repositoryName: ecrResult.repositoryName,
+            repositoryUri: ecrResult.ecrUri || ecrResult.repositoryUri || null,
+            imageUri: ecrResult.imageUri,
+            imageTag: ecrResult.imageTag,
+          },
+          ec2: {
+            instanceId: ec2Result.instanceId,
+            publicIp: ec2Result.publicIp,
+            privateIp: ec2Result.privateIp,
+            instanceType: target.instanceType || null,
+            keyName: target.keyName || null,
+            securityGroupIds: target.securityGroupIds || [],
+            vpcId: target.vpcId || null,
+          },
+          container: {
+            name: containerName,
+            imageName,
+            port: containerPort,
+          },
+          liveUrl: ec2Result.liveUrl,
+          deployState: 'running',
+        });
         deployment.publicUrl = ec2Result.liveUrl;
         deployment.totalTime = Date.now() - startedAt;
         deployment.updateStatus('success', 'complete');
         deployment.markAsSuccess(ec2Result.liveUrl, Date.now() - startedAt);
-        deployment.metadata.deployState = 'running';
+        deployment.infrastructure = deployment.infrastructure || {};
+        deployment.infrastructure.deployState = 'running';
         deployment.metadata.completedAt = new Date().toISOString();
         await this.saveDeployment(deployment);
 
@@ -596,6 +689,19 @@ class DeploymentEngineService {
         ? (target.publicUrl || `http://${target.publicHost || target.host}`)
         : `http://localhost:${hostPort}`;
 
+      this.syncInfrastructure(deployment, {
+        provider: target.type || 'local',
+        targetType: target.type || 'local',
+        region: target.awsRegion || process.env.AWS_REGION || null,
+        target,
+        container: {
+          name: containerName,
+          imageName,
+          port: containerPort,
+        },
+        liveUrl,
+        deployState: 'completed',
+      });
       deployment.metadata = deployment.metadata || {};
       deployment.metadata.imageName = imageName;
       deployment.metadata.containerName = containerName;
@@ -603,7 +709,6 @@ class DeploymentEngineService {
       deployment.metadata.containerPort = containerPort;
       deployment.metadata.liveUrl = liveUrl;
       deployment.metadata.runResult = runResult;
-      deployment.metadata.target = target;
       deployment.metadata.queueState = 'completed';
       deployment.publicUrl = liveUrl;
       deployment.totalTime = Date.now() - startedAt;
@@ -616,8 +721,8 @@ class DeploymentEngineService {
 
       deployment.updateStatus('success', 'complete');
       deployment.markAsSuccess(liveUrl, Date.now() - startedAt);
-      deployment.metadata = deployment.metadata || {};
-      deployment.metadata.deployState = 'running';
+      deployment.infrastructure = deployment.infrastructure || {};
+      deployment.infrastructure.deployState = 'running';
       deployment.metadata.completedAt = new Date().toISOString();
       deployment.metadata.containerStatus = 'running';
       await this.saveDeployment(deployment);
@@ -773,6 +878,7 @@ class DeploymentEngineService {
       framework: deployment.framework,
       publicUrl: deployment.publicUrl,
       logs: deployment.logs.slice(-100),
+      infrastructure: deployment.infrastructure || {},
       metadata: deployment.metadata || {},
       error: deployment.error,
       startedAt: deployment.startedAt,

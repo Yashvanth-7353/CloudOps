@@ -57,6 +57,43 @@ const DeploymentSchema = new mongoose.Schema(
     dockerImageSize: Number, // in bytes
     dockerfile: String, // Dockerfile content
 
+    // Infrastructure / cloud deployment details
+    infrastructure: {
+      provider: {
+        type: String,
+        default: 'aws',
+      },
+      targetType: {
+        type: String,
+        enum: ['local', 'ssh', 'aws'],
+      },
+      region: String,
+      target: mongoose.Schema.Types.Mixed,
+      ecr: {
+        repositoryArn: String,
+        repositoryName: String,
+        repositoryUri: String,
+        imageUri: String,
+        imageTag: String,
+      },
+      ec2: {
+        instanceId: String,
+        publicIp: String,
+        privateIp: String,
+        instanceType: String,
+        keyName: String,
+        securityGroupIds: [String],
+        vpcId: String,
+      },
+      container: {
+        name: String,
+        imageName: String,
+        port: Number,
+      },
+      liveUrl: String,
+      deployState: String,
+    },
+
     // ECS deployment
     ecsClusterName: String,
     ecsServiceName: String,
