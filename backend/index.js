@@ -42,7 +42,11 @@ io.on('connection', (socket) => {
 
 // --- 2. MIDDLEWARE & DB ---
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+    verify: (req, res, buf) => {
+        req.rawBody = Buffer.from(buf);
+    },
+}));
 
 // --- MONGODB CONNECTION ---
 mongoose.connect(process.env.MONGODB_URI)
@@ -73,6 +77,7 @@ const apiRoutes = require('./src/routes/apiRoutes');
 const userRoutes = require('./src/routes/userRoutes');
 const deployRoutes = require('./src/routes/deployRoutes');
 const deploymentRoutes = require('./src/routes/deploymentRoutes');
+const awsRoutes = require('./src/routes/awsRoutes');
 
 app.use('/auth', authRoutes);
 app.use('/api/auth', authRoutes);
@@ -81,6 +86,7 @@ app.use('/api/users', userRoutes);
 app.use('/api', apiRoutes);
 app.use('/api', deployRoutes);
 app.use('/api/deploy', deploymentRoutes);
+app.use('/api/aws', awsRoutes); // AWS integration routes
 
 // --- 4. START SERVER ---
 // CRITICAL: We use server.listen() here, NOT app.listen()!

@@ -16,6 +16,8 @@ export default function DeployProject() {
   const [clonePath, setClonePath] = useState('');
   const [hasDockerfile, setHasDockerfile] = useState(true);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
+  const [projectId, setProjectId] = useState('');
+  const [repositoryOwner, setRepositoryOwner] = useState('');
 
   // Form States
   const [envPath, setEnvPath] = useState('.env');
@@ -44,6 +46,8 @@ export default function DeployProject() {
         setClonePath(result.clonePath);
         setHasDockerfile(result.hasDockerfile);
         setFileTree(result.fileTree || []); // Save the tree!
+        setProjectId(result.projectId);
+        setRepositoryOwner(result.repositoryOwner);
         
         addLog(`Repository cloned successfully.`, 'success');
         setStep('env');
@@ -88,7 +92,11 @@ export default function DeployProject() {
       addLog(`Configuration saved. Starting build engine...`, 'success');
       
       // Trigger the backend build process which fires socket events
-      await deploymentService.startBuild(repo!);
+      await deploymentService.startBuild({
+        projectId,
+        repositoryName: repo!,
+        repositoryOwner
+      });
 
     } catch (err: any) {
       addLog(`Error: ${err.message}`, 'error');

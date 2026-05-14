@@ -21,11 +21,12 @@ class DeploymentService {
   async startDeployment(projectId, userId, deploymentData) {
     try {
       const { repositoryUrl, environmentVariables = {}, branch = 'main' } = deploymentData;
+      const normalizedUserId = String(userId);
 
       // Create deployment record
       const deployment = new Deployment({
         projectId,
-        userId,
+        userId: normalizedUserId,
         repositoryUrl,
         branch,
         environmentVariables: Object.entries(environmentVariables).map(([key, value]) => ({

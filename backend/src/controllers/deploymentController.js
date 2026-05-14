@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const Project = require('../models/Project');
 const gitService = require('../services/gitService');
+const deploymentEngine = require('../services/deploymentEngineService');
 const fs = require('fs');
 const path = require('path');
 
@@ -27,6 +28,60 @@ function getDirectoryTree(dirPath, depth = 0) {
     return result.sort((a, b) => (a.type === 'directory' ? -1 : 1));
 }
 
+async function resolveDeploymentContext(req) {
+    const token = req.headers.authorization?.split(' ')[1];
+    const body = req.body || {};
+
+    let decoded = null;
+    if (token) {
+        decoded = jwt.verify(token, process.env.JWT_SECRET);
+    }
+
+    const userId = decoded?.id != null ? String(decoded.id) : (body.userId != null ? String(body.userId) : null);
+
+    if (body.projectId) {
+        const project = await Project.findById(body.projectId);
+        if (!project) {
+            throw new Error('Project not found');
+        }
+
+        return {
+            project,
+            userId: String(project.userId || userId || ''),
+            repositoryUrl: project.repositoryUrl,
+            repositoryName: project.repositoryName,
+        };
+    }
+
+    if (body.repositoryName && body.repositoryOwner) {
+        const query = {
+            repositoryName: body.repositoryName,
+            repositoryOwner: body.repositoryOwner,
+        };
+
+        if (userId) {
+            query.userId = userId;
+        }
+
+        const project = await Project.findOne(query);
+        if (project) {
+            return {
+                project,
+                userId: String(project.userId || userId || ''),
+                repositoryUrl: project.repositoryUrl,
+                repositoryName: project.repositoryName,
+            };
+        }
+    }
+
+    return {
+        project: null,
+        userId,
+        repositoryUrl: body.repositoryUrl,
+        repositoryName: body.repositoryName,
+    };
+}
+
 const initDeploy = async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'No token provided' });
@@ -34,7 +89,7 @@ const initDeploy = async (req, res) => {
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const { repositoryName, repositoryOwner } = req.body;
-        const userId = decoded.id;
+        const userId = String(decoded.id);
 
         const project = await Project.findOne({ repositoryName, repositoryOwner, userId });
         if (!project) return res.status(404).json({ error: 'Project must be connected before deploying.' });
@@ -48,6 +103,10 @@ const initDeploy = async (req, res) => {
 
         res.status(200).json({
             success: true,
+            projectId: project._id,
+            repositoryUrl: project.repositoryUrl,
+            repositoryName: project.repositoryName,
+            repositoryOwner: project.repositoryOwner,
             clonePath,
             hasDockerfile,
             fileTree, // <-- Sending the folder structure to the frontend!
@@ -87,48 +146,139 @@ const saveDeploymentFiles = async (req, res) => {
     }
 }
 
-// --- NEW FUNCTION: The Build Streamer ---
 const startBuild = async (req, res) => {
-    const { repositoryName } = req.body;
-    const io = req.app.get('io'); // Get the socket instance
+    const io = req.app.get('io');
 
-    // We immediately respond OK to the API request
-    res.status(200).json({ message: 'Build engine started' });
+    try {
+        const context = await resolveDeploymentContext(req);
+        
+        // Ensure we have repositoryUrl - try multiple sources
+        let repositoryUrl = context.repositoryUrl || context.project?.repositoryUrl || req.body.repositoryUrl;
+        
+        // If we have repositoryName and repositoryOwner but no URL, construct it
+        if (!repositoryUrl && req.body.repositoryName && req.body.repositoryOwner) {
+            repositoryUrl = `https://github.com/${req.body.repositoryOwner}/${req.body.repositoryName}.git`;
+        }
+        
+        // Final validation - repositoryUrl is absolutely required
+        if (!repositoryUrl) {
+            return res.status(400).json({
+                success: false,
+                error: 'repositoryUrl, projectId, or (repositoryName + repositoryOwner) is required to start deployment',
+            });
+        }
 
-    // Helper to send logs to the specific frontend room
-    const sendLog = (text, type = 'info') => {
-        io.to(repositoryName).emit('build-log', { text, type, timestamp: new Date().toISOString() });
-    };
+        const result = await deploymentEngine.startDeployment({
+            projectId: context.project?._id || req.body.projectId,
+            userId: context.userId,
+            repositoryUrl,
+            repositoryName: context.repositoryName || context.project?.repositoryName || req.body.repositoryName,
+            branch: req.body.branch || req.body.ref?.replace('refs/heads/', '') || 'main',
+            environmentVariables: req.body.environmentVariables || context.project?.environmentVariables || {},
+            target: req.body.target || req.body.ec2Target || req.body.remoteTarget || {},
+            triggeredBy: req.body.triggeredBy || 'manual',
+            webhookId: req.body.webhookId || context.project?.githubWebhookId || null,
+        }, io);
 
-    // --- SIMULATED REAL-TIME DOCKER BUILD LOGS ---
-    // (In the future, you will replace these setTimeout blocks with real Dockerode commands)
-    sendLog('Initializing build container...', 'system');
-    
-    setTimeout(() => sendLog('Step 1/6 : FROM node:18-alpine', 'info'), 2000);
-    setTimeout(() => sendLog(' ---> 3f5d5c0e0b0a', 'info'), 2500);
-    
-    setTimeout(() => sendLog('Step 2/6 : WORKDIR /app', 'info'), 3000);
-    setTimeout(() => sendLog(' ---> Running in 8b4d8a1c9e', 'info'), 3500);
-    
-    setTimeout(() => sendLog('Step 3/6 : COPY package*.json ./', 'info'), 4500);
-    
-    setTimeout(() => sendLog('Step 4/6 : RUN npm install', 'info'), 5500);
-    setTimeout(() => sendLog('npm WARN deprecated ...', 'error'), 6500); // Show a mock warning
-    setTimeout(() => sendLog('added 245 packages, and audited 246 packages in 3s', 'success'), 8000);
-    
-    setTimeout(() => sendLog('Step 5/6 : COPY . .', 'info'), 9000);
-    
-    setTimeout(() => sendLog('Step 6/6 : EXPOSE 3000', 'info'), 9500);
-    
-    setTimeout(() => {
-        sendLog('Successfully built image cloudops-app:latest', 'success');
-        sendLog('Pushing to AWS ECR...', 'system');
-    }, 11000);
-
-    setTimeout(() => {
-        sendLog('Deployment LIVE. Application routing configured.', 'success');
-        io.to(repositoryName).emit('build-complete', { status: 'success' });
-    }, 14000);
+        return res.status(202).json({
+            success: true,
+            message: 'Deployment queued successfully.',
+            ...result,
+        });
+    } catch (error) {
+        console.error('Start deployment error:', error);
+        return res.status(400).json({
+            success: false,
+            error: error.message || 'Failed to start deployment',
+        });
+    }
 };
 
-module.exports = { initDeploy, saveDeploymentFiles, startBuild };
+const getDeploymentStatus = async (req, res) => {
+    try {
+        const deployment = await deploymentEngine.getDeploymentDetails(req.params.deploymentId);
+        return res.status(200).json({ success: true, deployment });
+    } catch (error) {
+        return res.status(404).json({ success: false, error: error.message });
+    }
+};
+
+const getDeploymentLogs = async (req, res) => {
+    try {
+        const logs = await deploymentEngine.getDeploymentLogs(req.params.deploymentId, {
+            source: req.query.source || null,
+            level: req.query.level || null,
+            limit: Number(req.query.limit || 100),
+            skip: Number(req.query.skip || 0),
+        });
+
+        return res.status(200).json({ success: true, logs });
+    } catch (error) {
+        return res.status(404).json({ success: false, error: error.message });
+    }
+};
+
+const stopDeployment = async (req, res) => {
+    try {
+        const result = await deploymentEngine.stopDeployment(req.params.deploymentId, req.app.get('io'));
+        return res.status(200).json(result);
+    } catch (error) {
+        return res.status(400).json({ success: false, error: error.message });
+    }
+};
+
+const restartDeployment = async (req, res) => {
+    try {
+        const result = await deploymentEngine.restartDeployment(req.params.deploymentId, req.app.get('io'));
+        return res.status(200).json(result);
+    } catch (error) {
+        return res.status(400).json({ success: false, error: error.message });
+    }
+};
+
+const handleWebhook = async (req, res) => {
+    try {
+        const repository = req.body.repository || {};
+        const cloneUrl = repository.clone_url || repository.ssh_url || '';
+        const project = await Project.findOne({
+            $or: [
+                cloneUrl ? { repositoryUrl: cloneUrl } : null,
+                repository.name && repository.owner?.login ? {
+                    repositoryName: repository.name,
+                    repositoryOwner: repository.owner.login,
+                } : null,
+            ].filter(Boolean),
+        });
+
+        if (!project) {
+            return res.status(404).json({ success: false, error: 'No matching project found for webhook' });
+        }
+
+        const signature = req.headers['x-hub-signature-256'];
+        const isValid = deploymentEngine.verifyWebhookSignature(req.rawBody, project.webhookSecret, signature);
+        if (!isValid) {
+            return res.status(401).json({ success: false, error: 'Webhook signature verification failed' });
+        }
+
+        if (req.headers['x-github-event'] !== 'push') {
+            return res.status(200).json({ success: true, message: 'Webhook acknowledged' });
+        }
+
+        const result = await deploymentEngine.handleWebhook(req.body, req.app.get('io'));
+        return res.status(202).json({ success: true, message: 'Webhook accepted and redeployment queued', ...result });
+    } catch (error) {
+        console.error('Webhook handling error:', error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+module.exports = {
+    initDeploy,
+    saveDeploymentFiles,
+    startBuild,
+    getDeploymentStatus,
+    getDeploymentLogs,
+    stopDeployment,
+    restartDeployment,
+    handleWebhook,
+};

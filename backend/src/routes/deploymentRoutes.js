@@ -8,7 +8,14 @@ router.post('/init', deploymentController.initDeploy);
 // 2. Saves the .env and Dockerfile
 router.post('/save-files', deploymentController.saveDeploymentFiles);
 
-// 3. THIS WAS MISSING: Starts the socket stream build engine!
+// 3. Starts the real deployment engine
+router.post('/start', deploymentController.startBuild);
 router.post('/start-build', deploymentController.startBuild);
+
+// 4. Deployment lifecycle APIs
+router.get('/:deploymentId/status', deploymentController.getDeploymentStatus);
+router.get('/:deploymentId/logs', deploymentController.getDeploymentLogs);
+router.post('/:deploymentId/stop', deploymentController.stopDeployment);
+router.post('/:deploymentId/restart', deploymentController.restartDeployment);
 
 module.exports = router;

@@ -14,20 +14,19 @@ const DeploymentSchema = new mongoose.Schema(
       index: true,
     },
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      type: String,
       required: true,
       index: true,
     },
     status: {
       type: String,
-      enum: ['pending', 'cloning', 'detecting', 'building', 'pushing', 'deploying', 'success', 'failed', 'cancelled'],
+      enum: ['pending', 'queued', 'cloning', 'detecting', 'building', 'pushing', 'deploying', 'running', 'stopped', 'success', 'failed', 'cancelled'],
       default: 'pending',
       index: true,
     },
     phase: {
       type: String,
-      enum: ['preparation', 'clone', 'framework_detection', 'dockerfile_generation', 'docker_build', 'push_ecr', 'ecs_deploy', 'dns_setup', 'complete'],
+      enum: ['preparation', 'queued', 'clone', 'framework_detection', 'dockerfile_generation', 'docker_build', 'container_start', 'nginx_setup', 'push_ecr', 'ecs_deploy', 'dns_setup', 'cleanup', 'complete'],
       default: 'preparation',
     },
     // Git information

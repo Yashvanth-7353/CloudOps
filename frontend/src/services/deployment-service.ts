@@ -2,9 +2,9 @@ import { axiosClient } from './api/axios-client';
 
 export const deploymentService = {
   // Add this inside the deploymentService object:
-  startBuild: async (repositoryName: string) => {
+  startBuild: async (data: { projectId?: string; repositoryName: string; repositoryOwner?: string }) => {
     try {
-      const response = await axiosClient.post('/api/deploy/start-build', { repositoryName });
+      const response = await axiosClient.post('/api/deploy/start-build', data);
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.error || 'Failed to start build engine');

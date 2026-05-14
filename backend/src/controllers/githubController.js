@@ -68,7 +68,7 @@ const connectRepository = async (req, res) => {
         }
 
         const { repositoryName, repositoryOwner, repositoryUrl, isPrivate, description } = req.body;
-        const userId = decoded.id; 
+        const userId = String(decoded.id); 
 
         // 1. Verify project isn't already connected
         const existingProject = await Project.findOne({ repositoryName, repositoryOwner, userId });
@@ -129,7 +129,7 @@ const removeRepository = async (req, res) => {
         if (!decoded.githubToken) return res.status(400).json({ error: 'GitHub account is not connected' });
 
         const { owner, repo } = req.params;
-        const userId = decoded.id; 
+        const userId = String(decoded.id); 
 
         // 1. Find the project to get the webhook ID
         const project = await Project.findOne({ repositoryName: repo, repositoryOwner: owner, userId });
