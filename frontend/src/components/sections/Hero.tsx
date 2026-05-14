@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Github, Play, Cloud, ArrowRight, Zap } from 'lucide-react';
 import { API_BASE_URL } from '@/lib/constants';
+import { useNavigate } from 'react-router-dom';
 import './Hero.css';
 
 /**
@@ -94,6 +95,7 @@ const ConnectorArrow = ({ delay }: { delay: number }) => (
 
 // Main Hero Component
 export default function Hero() {
+  const navigate = useNavigate();
   // Pipeline animation states
   const stages = [
     { label: 'GitHub', icon: <Github className="w-8 h-8 text-accent" /> },
@@ -187,7 +189,7 @@ export default function Hero() {
               whileHover={{ scale: 1.05, boxShadow: '0 20px 40px rgba(108, 99, 255, 0.3)' }}
               whileTap={{ scale: 0.98 }}
               className="px-8 py-4 bg-gradient-to-r from-primary to-primary/80 text-white rounded-lg font-semibold flex items-center justify-center gap-2 hover:shadow-lg transition-all duration-300"
-              onClick={() => window.location.assign(`${API_BASE_URL}/auth/github`)}
+              onClick={() => navigate('/login')}
             >
               <Github className="w-5 h-5" />
               Connect GitHub

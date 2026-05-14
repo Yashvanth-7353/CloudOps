@@ -54,9 +54,9 @@ const Navbar: React.FC = () => {
     navigate('/settings?tab=profile');
   };
 
-  const handleSettings = () => {
+  const handleDashboard = () => {
     setUserMenuOpen(false);
-    navigate('/settings?tab=settings');
+    navigate('/dashboard');
   };
 
   const handleThemeToggle = () => {
@@ -229,11 +229,11 @@ const Navbar: React.FC = () => {
                           role="menuitem"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleSettings();
+                            handleDashboard();
                           }}
                           className="w-full text-left px-4 py-3 text-sm text-white/90 hover:bg-white/10 transition-colors cursor-pointer"
                         >
-                          Settings
+                          Dashboard
                         </button>
                         <div className="border-t border-white/5" />
                         <button
@@ -252,16 +252,17 @@ const Navbar: React.FC = () => {
                   </AnimatePresence>
                 </div>
               ) : (
-                <motion.a
-                  href="http://localhost:5000/auth/github"
+                <motion.button
+                  type="button"
+                  onClick={() => navigate('/login')}
                   className="btn btn-secondary gap-md hidden md:flex"
-                  aria-label="Sign in with GitHub"
+                  aria-label="Sign in"
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   <Github size={18} />
                   <span>Sign in</span>
-                </motion.a>
+                </motion.button>
               )}
 
               {/* Mobile Menu Toggle (hidden on home page) */}
@@ -351,18 +352,21 @@ const Navbar: React.FC = () => {
                   <span>Sign out</span>
                 </motion.button>
               ) : (
-                <motion.a
-                  href="http://localhost:5000/auth/github"
+                <motion.button
+                  type="button"
+                  onClick={() => {
+                    handleNavClick();
+                    navigate('/login');
+                  }}
                   className="mobile-github-btn"
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
                   transition={{ delay: navLinks.length * 0.05, duration: 0.2 }}
-                  onClick={handleNavClick}
                 >
                   <Github size={18} />
-                  <span>Sign in with GitHub</span>
-                </motion.a>
+                  <span>Sign in</span>
+                </motion.button>
               )}
             </div>
           </motion.div>
