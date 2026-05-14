@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Loader2, Folder, File, ArrowLeft, CheckCircle2, Cloud, Server } from 'lucide-react';
 import { deploymentService } from '../services/deployment-service';
-import { io, Socket } from 'socket.io-client';
+import { io } from 'socket.io-client';
 
 // Type for the file tree
 type FileNode = { name: string; type: 'file' | 'directory'; children?: FileNode[] };
@@ -19,6 +19,7 @@ export default function DeployProject() {
   const [projectId, setProjectId] = useState('');
   const [repositoryOwner, setRepositoryOwner] = useState('');
   const [repositoryUrl, setRepositoryUrl] = useState('');
+  const [activeDeploymentId, setActiveDeploymentId] = useState('');
 
   // Deployment Type
   const [deploymentType, setDeploymentType] = useState<'local' | 'aws'>('local');
@@ -95,12 +96,21 @@ export default function DeployProject() {
     // Listen for deployment-complete event (new event from backend)
     newSocket.on('deployment-complete', (data) => {
       addLog(`✅ Deployment completed successfully!`, 'success');
+      if (data?.liveUrl) {
+        addLog(`🔗 Live URL: ${data.liveUrl}`, 'success');
+      }
       setStep('complete');
+
+      const deploymentIdToOpen = data?.deploymentId || activeDeploymentId;
+      if (deploymentIdToOpen) {
+        navigate(`/deployment-logs?deploymentId=${encodeURIComponent(deploymentIdToOpen)}`);
+      }
+
       newSocket.disconnect();
     });
 
     return () => { newSocket.disconnect(); };
-  }, [step, repo]);
+  }, [step, repo, activeDeploymentId, navigate]);
 
   const handleStartBuild = async () => {
     setStep('deploying');
@@ -129,6 +139,7 @@ export default function DeployProject() {
 
         addLog(`✅ AWS deployment initiated!`, 'success');
         addLog(`🆔 Deployment ID: ${result.deploymentId}`, 'info');
+        setActiveDeploymentId(result.deploymentId);
         if (result.instanceId) addLog(`📍 Instance ID: ${result.instanceId}`, 'info');
         if (result.liveUrl) addLog(`🔗 Live URL: ${result.liveUrl}`, 'success');
         if (result.ecrUri) addLog(`🐳 ECR URI: ${result.ecrUri}`, 'info');
