@@ -159,20 +159,38 @@ export default function DeploymentDetailPage() {
   const deploymentKey = deployment?._id || deployment?.deploymentId || '';
   const metadata = (deployment?.metadata || {}) as Record<string, any>;
   const infrastructure = (deployment?.infrastructure || metadata.infrastructure || {}) as NonNullable<DeploymentDetails['infrastructure']> & Record<string, any>;
-  const commitHash = deployment?.commitShortHash || deployment?.commitHash || deployment?.metadata?.repositoryInfo?.latestCommit?.shortHash || 'Unknown';
-  const fullCommitHash = deployment?.commitHash || deployment?.metadata?.repositoryInfo?.latestCommit?.hash || 'Unknown';
-  const commitMessage = deployment?.commitMessage || deployment?.metadata?.repositoryInfo?.latestCommit?.message || 'Unknown';
-  const commitAuthor = deployment?.commitAuthor || deployment?.metadata?.repositoryInfo?.latestCommit?.author || 'Unknown';
-  const commitDate = deployment?.commitDate || deployment?.metadata?.repositoryInfo?.latestCommit?.date;
+  const deploymentProvider = deployment?.deploymentService || infrastructure?.provider || 'aws';
+  const targetType = infrastructure?.targetType || infrastructure?.target?.type || 'unknown';
+  const commitHash = deployment?.commitShortHash || deployment?.commitHash || metadata?.repositoryInfo?.latestCommit?.shortHash || 'Unknown';
+  const fullCommitHash = deployment?.commitHash || metadata?.repositoryInfo?.latestCommit?.hash || 'Unknown';
+  const commitMessage = deployment?.commitMessage || metadata?.repositoryInfo?.latestCommit?.message || 'Unknown';
+  const commitAuthor = deployment?.commitAuthor || metadata?.repositoryInfo?.latestCommit?.author || 'Unknown';
+  const commitDate = deployment?.commitDate || metadata?.repositoryInfo?.latestCommit?.date;
   const ecrRepository = infrastructure?.ecr?.repositoryName || deployment?.metadata?.ecrRepository || 'Pending';
   const ecrRepositoryUri = infrastructure?.ecr?.repositoryUri || 'Pending';
-  const ecrImageUri = infrastructure?.ecr?.imageUri || deployment?.dockerImageUri || deployment?.metadata?.ecrImageUri || 'Pending';
+  const ecrImageUri = infrastructure?.ecr?.imageUri || deployment?.dockerImageUri || metadata?.ecrImageUri || metadata?.dockerImageUri || 'Pending';
+  const ecrImageTag = deployment?.dockerImageTag || infrastructure?.ecr?.imageTag || infrastructure?.acr?.imageTag || metadata?.dockerImageTag || 'Pending';
   const ec2InstanceId = infrastructure?.ec2?.instanceId || deployment?.metadata?.ec2InstanceId || 'Pending';
   const ec2PublicIp = infrastructure?.ec2?.publicIp || deployment?.metadata?.ec2PublicIp || 'Pending';
   const ec2PrivateIp = infrastructure?.ec2?.privateIp || deployment?.metadata?.ec2PrivateIp || 'Pending';
   const containerPort = infrastructure?.container?.port || deployment?.metadata?.containerPort || 80;
-  const containerName = infrastructure?.container?.name || deployment?.metadata?.containerName || 'Pending';
+  const containerName = infrastructure?.container?.name || deployment?.metadata?.containerName || infrastructure?.aci?.containerName || 'Pending';
   const liveInfrastructureUrl = infrastructure?.liveUrl || deployment?.publicUrl || deployment?.metadata?.liveUrl;
+  const dockerBuildTime = deployment?.dockerBuildTime || deployment?.buildTime || metadata?.dockerBuildTime;
+  const dockerImageSize = deployment?.dockerImageSize || metadata?.dockerImageSize;
+  const azureAcrRepository = infrastructure?.acr?.repositoryName || 'Pending';
+  const azureAcrLoginServer = infrastructure?.acr?.loginServer || 'Pending';
+  const azureAcrImageUri = infrastructure?.acr?.imageUri || ecrImageUri;
+  const azureAcrImageName = infrastructure?.acr?.imageName || 'Pending';
+  const azureAciContainerGroup = infrastructure?.aci?.containerGroupName || 'Pending';
+  const azureAciResourceGroup = infrastructure?.aci?.resourceGroupName || infrastructure?.aci?.resourceGroup || 'Pending';
+  const azureAciLocation = infrastructure?.aci?.location || infrastructure?.region || 'Pending';
+  const azureAciFqdn = infrastructure?.aci?.fqdn || infrastructure?.aci?.ipAddress || 'Pending';
+  const azureAciStatus = infrastructure?.aci?.status || 'Pending';
+  const azureAciCpu = infrastructure?.aci?.cpu || 'Pending';
+  const azureAciMemory = infrastructure?.aci?.memoryInGb || 'Pending';
+  const isAwsDeployment = deploymentProvider === 'aws' || infrastructure?.provider === 'aws' || infrastructure?.targetType === 'aws';
+  const isAzureDeployment = deploymentProvider === 'azure' || infrastructure?.provider === 'azure' || infrastructure?.targetType === 'azure';
 
   useEffect(() => {
     if (!id) {
@@ -387,7 +405,7 @@ export default function DeploymentDetailPage() {
                         Live URL will appear after the deployment finishes.
                       </div>
                     )}
-                    {deployment.status === 'success' && (
+                    {isAwsDeployment && deployment.status === 'success' && (
                       <div className="mt-3 space-y-3">
                         <button
                           type="button"
@@ -418,6 +436,11 @@ export default function DeploymentDetailPage() {
                             </div>
                           </div>
                         )}
+                      </div>
+                    )}
+                    {isAzureDeployment && deployment.status === 'success' && (
+                      <div className="mt-3 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-4 text-sm text-cyan-100">
+                        Azure deployments are managed through ACI/ACR. Use the Azure Portal to terminate resources.
                       </div>
                     )}
                   </div>
@@ -492,8 +515,11 @@ export default function DeploymentDetailPage() {
                       { label: 'Commit author', value: commitAuthor },
                       { label: 'Commit message', value: commitMessage },
                       { label: 'Commit date', value: formatDate(commitDate) },
-                      { label: 'Docker image tag', value: deployment.dockerImageTag || infrastructure?.ecr?.imageTag || 'Pending' },
+                      { label: 'Framework', value: deployment.framework || metadata?.framework || 'auto-detected' },
+                      { label: 'Docker image tag', value: ecrImageTag },
                       { label: 'Docker image URI', value: ecrImageUri },
+                      { label: 'Docker build time', value: dockerBuildTime ? formatDuration(dockerBuildTime) : 'Pending' },
+                      { label: 'Docker image size', value: dockerImageSize ? `${(dockerImageSize / (1024 * 1024)).toFixed(2)} MB` : 'Pending' },
                     ].map((item) => (
                       <div key={item.label} className="min-w-0 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
                         <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">{item.label}</div>
@@ -507,18 +533,29 @@ export default function DeploymentDetailPage() {
                   <h2 className="text-lg font-semibold text-white">Infrastructure</h2>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {[
-                      { label: 'Provider', value: infrastructure?.provider || 'aws' },
-                      { label: 'Region', value: infrastructure?.region || metadata?.target?.awsRegion || 'Pending' },
-                      { label: 'EC2 instance', value: ec2InstanceId },
+                      { label: 'Provider', value: deploymentProvider },
+                      { label: 'Target type', value: targetType },
+                      { label: 'Region', value: infrastructure?.region || metadata?.target?.awsRegion || azureAciLocation || 'Pending' },
+                      { label: 'Live URL', value: liveInfrastructureUrl || 'Pending' },
+                      { label: 'Deploy state', value: infrastructure?.deployState || 'Pending' },
+                      { label: 'Container name', value: containerName },
+                      { label: 'Container port', value: containerPort },
                       { label: 'Instance type', value: infrastructure?.ec2?.instanceType || metadata?.target?.instanceType || 'Pending' },
                       { label: 'Public IP', value: ec2PublicIp },
                       { label: 'Private IP', value: ec2PrivateIp },
                       { label: 'ECR repository', value: ecrRepository },
                       { label: 'ECR repository URI', value: ecrRepositoryUri },
-                      { label: 'Container name', value: containerName },
-                      { label: 'Container port', value: containerPort },
-                      { label: 'Live URL', value: liveInfrastructureUrl || 'Pending' },
-                      { label: 'Deploy state', value: infrastructure?.deployState || 'Pending' },
+                      { label: 'ACR repository', value: azureAcrRepository },
+                      { label: 'ACR login server', value: azureAcrLoginServer },
+                      { label: 'ACR image URI', value: azureAcrImageUri },
+                      { label: 'ACR image name', value: azureAcrImageName },
+                      { label: 'ACI container group', value: azureAciContainerGroup },
+                      { label: 'ACI resource group', value: azureAciResourceGroup },
+                      { label: 'ACI location', value: azureAciLocation },
+                      { label: 'ACI FQDN / IP', value: azureAciFqdn },
+                      { label: 'ACI status', value: azureAciStatus },
+                      { label: 'ACI CPU', value: azureAciCpu },
+                      { label: 'ACI memory (GB)', value: azureAciMemory },
                     ].map((item) => (
                       <div key={item.label} className="min-w-0 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
                         <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">{item.label}</div>
