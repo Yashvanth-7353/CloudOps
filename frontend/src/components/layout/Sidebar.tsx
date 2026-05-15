@@ -14,16 +14,16 @@ const navItems: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <Home className="w-5 h-5" />, href: '/dashboard' },
   { key: 'deployments', label: 'Deployments', icon: <Layers3 className="w-5 h-5" />, href: '/deployments' },
   { key: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-5 h-5" />, href: '/analytics' },
-  { key: 'billing', label: 'Billing', icon: <CreditCard className="w-5 h-5" />, href: '/billing' },
+  // { key: 'billing', label: 'Billing', icon: <CreditCard className="w-5 h-5" />, href: '/billing' },
   { key: 'environment-variables', label: 'Environment Variables', icon: <Database className="w-5 h-5" />, href: '/environment-variables' },
   { key: 'settings', label: 'Settings', icon: <Settings className="w-5 h-5" />, href: '/settings' },
 ];
 
-const Sidebar: React.FC<{
+const Sidebar: React.FC<
+{
   collapsed?: boolean;
   onCollapse?: (v: boolean) => void;
 }> = ({ collapsed = false, onCollapse }) => {
-  const liveProjectsHref = '/live-projects';
 
   return (
     <motion.aside
@@ -95,19 +95,7 @@ const Sidebar: React.FC<{
               </li>
             ))}
 
-            <li>
-              <Link
-                to={liveProjectsHref}
-                className={`group flex items-center gap-3 rounded-xl p-3 text-sm transition-colors hover:bg-white/3 ${
-                  collapsed ? 'justify-center' : ''
-                }`}
-              >
-                <span className="text-cyan-300">
-                  <Rocket className="w-5 h-5" />
-                </span>
-                {!collapsed && <span className="text-white/90">Live Projects</span>}
-              </Link>
-            </li>
+            
           </ul>
         </nav>
 
