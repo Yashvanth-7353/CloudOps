@@ -10,7 +10,7 @@ const DeploymentSchema = new mongoose.Schema(
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Project',
-      required: false,  // Can be null for ad-hoc deployments without a connected project
+      required: true,
       index: true,
     },
     userId: {
@@ -20,13 +20,13 @@ const DeploymentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'queued', 'cloning', 'detecting', 'building', 'pushing', 'deploying', 'running', 'stopped', 'success', 'failed', 'cancelled', 'closed', 'redeployed'],
+      enum: ['pending', 'cloning', 'detecting', 'building', 'pushing', 'deploying', 'success', 'failed', 'cancelled'],
       default: 'pending',
       index: true,
     },
     phase: {
       type: String,
-      enum: ['preparation', 'queued', 'clone', 'framework_detection', 'dockerfile_generation', 'docker_build', 'container_start', 'nginx_setup', 'push_ecr', 'ec2_launch', 'ecs_deploy', 'dns_setup', 'cleanup', 'complete'],
+      enum: ['preparation', 'clone', 'framework_detection', 'dockerfile_generation', 'docker_build', 'push_ecr', 'ecs_deploy', 'dns_setup', 'complete'],
       default: 'preparation',
     },
     // Git information
@@ -45,7 +45,7 @@ const DeploymentSchema = new mongoose.Schema(
     // Framework detection
     framework: {
       type: String,
-      enum: ['nodejs', 'python', 'java', 'go', 'ruby', 'php', 'rust', 'dotnet', 'static', 'custom'],
+      enum: ['nodejs', 'python', 'java', 'go', 'ruby', 'php', 'rust', 'dotnet', 'static'],
     },
     frameworkVersion: String,
     frameworkDetails: mongoose.Schema.Types.Mixed,
@@ -56,72 +56,6 @@ const DeploymentSchema = new mongoose.Schema(
     dockerBuildTime: Number, // in milliseconds
     dockerImageSize: Number, // in bytes
     dockerfile: String, // Dockerfile content
-
-    // Deployment service type (AWS or Azure)
-    deploymentService: {
-      type: String,
-      enum: ['local', 'aws', 'azure'],
-      default: 'aws',
-      index: true,
-    },
-
-    // Infrastructure / cloud deployment details
-    infrastructure: {
-      provider: {
-        type: String,
-        default: 'aws',
-      },
-      targetType: {
-        type: String,
-        enum: ['local', 'ssh', 'aws', 'azure'],
-      },
-      region: String,
-      target: mongoose.Schema.Types.Mixed,
-      // AWS-specific fields
-      ecr: {
-        repositoryArn: String,
-        repositoryName: String,
-        repositoryUri: String,
-        imageUri: String,
-        imageTag: String,
-      },
-      ec2: {
-        instanceId: String,
-        publicIp: String,
-        privateIp: String,
-        instanceType: String,
-        keyName: String,
-        securityGroupIds: [String],
-        vpcId: String,
-      },
-      // Azure-specific fields
-      acr: {
-        loginServer: String,
-        repositoryName: String,
-        imageUri: String,
-        imageTag: String,
-        imageName: String,
-      },
-      aci: {
-        containerGroupName: String,
-        containerName: String,
-        resourceGroupName: String,
-        location: String,
-        cpu: Number,
-        memoryInGb: Number,
-        status: String,
-        fqdn: String,
-        ipAddress: String,
-        containerGroupId: String,
-      },
-      container: {
-        name: String,
-        imageName: String,
-        port: Number,
-      },
-      liveUrl: String,
-      deployState: String,
-    },
 
     // ECS deployment
     ecsClusterName: String,
@@ -188,49 +122,16 @@ const DeploymentSchema = new mongoose.Schema(
       default: 3,
     },
 
-    // Logs with service separation
+    // Logs
     logs: [{
       timestamp: Date,
       source: {
         type: String,
-        enum: ['system', 'git', 'framework', 'docker', 'aws', 'ecr', 'ecs', 'route53', 'azure', 'acr', 'aci', 'app'],
+        enum: ['system', 'git', 'framework', 'docker', 'ecr', 'ecs', 'route53', 'app'],
       },
       level: {
         type: String,
-        enum: ['debug', 'info', 'warn', 'error', 'success'],
-      },
-      message: String,
-      deploymentService: {
-        type: String,
-        enum: ['local', 'aws', 'azure'],
-      },
-      data: mongoose.Schema.Types.Mixed,
-    }],
-
-    // Separate log collections for easier querying
-    awsLogs: [{
-      timestamp: Date,
-      source: {
-        type: String,
-        enum: ['system', 'git', 'framework', 'docker', 'aws', 'ecr', 'ecs', 'route53', 'app'],
-      },
-      level: {
-        type: String,
-        enum: ['debug', 'info', 'warn', 'error', 'success'],
-      },
-      message: String,
-      data: mongoose.Schema.Types.Mixed,
-    }],
-
-    azureLogs: [{
-      timestamp: Date,
-      source: {
-        type: String,
-        enum: ['system', 'git', 'framework', 'docker', 'azure', 'acr', 'aci', 'app'],
-      },
-      level: {
-        type: String,
-        enum: ['debug', 'info', 'warn', 'error', 'success'],
+        enum: ['debug', 'info', 'warn', 'error'],
       },
       message: String,
       data: mongoose.Schema.Types.Mixed,
@@ -259,37 +160,14 @@ DeploymentSchema.index({ status: 1, createdAt: -1 });
 DeploymentSchema.index({ publicUrl: 1 }, { sparse: true });
 
 // Methods
-DeploymentSchema.methods.addLog = function (source, level, message, data = {}, deploymentService = null) {
-  const logEntry = {
+DeploymentSchema.methods.addLog = function (source, level, message, data = {}) {
+  this.logs.push({
     timestamp: new Date(),
     source,
     level,
     message,
     data,
-  };
-
-  // Add to unified logs
-  this.logs.push({
-    ...logEntry,
-    deploymentService: deploymentService || this.deploymentService,
   });
-
-  // Add to service-specific logs
-  if (deploymentService === 'aws' || (!deploymentService && this.deploymentService === 'aws')) {
-    this.awsLogs.push(logEntry);
-  } else if (deploymentService === 'azure' || (!deploymentService && this.deploymentService === 'azure')) {
-    this.azureLogs.push(logEntry);
-  }
-};
-
-// Get logs for a specific service
-DeploymentSchema.methods.getServiceLogs = function (service) {
-  if (service === 'aws') {
-    return this.awsLogs || [];
-  } else if (service === 'azure') {
-    return this.azureLogs || [];
-  }
-  return this.logs || [];
 };
 
 DeploymentSchema.methods.updateStatus = function (status, phase = null) {

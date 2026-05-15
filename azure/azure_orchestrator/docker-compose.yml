@@ -1,0 +1,15 @@
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    container_name: cloudops-azurite
+    ports:
+      - "10000:10000" # blob
+      - "10001:10001" # queue (unused)
+      - "10002:10002" # table (unused)
+    command: "azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --location /data --debug /data/debug.log"
+    volumes:
+      - azurite-data:/data
+
+volumes:
+  azurite-data:
+

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Loader2, Folder, File, ArrowLeft, CheckCircle2, Cloud, Server } from 'lucide-react';
+import { Loader2, Folder, File, ArrowLeft, CheckCircle2, Cloud, Server, Box } from 'lucide-react';
 import { deploymentService } from '../services/deployment-service';
-import { io } from 'socket.io-client';
+import { io, Socket } from 'socket.io-client';
 
 // Type for the file tree
 type FileNode = { name: string; type: 'file' | 'directory'; children?: FileNode[] };
@@ -11,8 +11,11 @@ export default function DeployProject() {
   const { owner, repo } = useParams<{ owner: string, repo: string }>();
   const navigate = useNavigate();
 
+  // Socket reference (persists across re-renders)
+  const socketRef = useRef<Socket | null>(null);
+
   // Process States
-  const [step, setStep] = useState<'cloning' | 'type' | 'env' | 'dockerfile' | 'aws' | 'deploying' | 'complete'>('cloning');
+  const [step, setStep] = useState<'cloning' | 'type' | 'env' | 'dockerfile' | 'aws' | 'azure' | 'deploying' | 'complete'>('cloning');
   const [clonePath, setClonePath] = useState('');
   const [hasDockerfile, setHasDockerfile] = useState(true);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
@@ -22,7 +25,7 @@ export default function DeployProject() {
   const [activeDeploymentId, setActiveDeploymentId] = useState('');
 
   // Deployment Type
-  const [deploymentType, setDeploymentType] = useState<'local' | 'aws'>('local');
+  const [deploymentType, setDeploymentType] = useState<'local' | 'aws' | 'azure'>('local');
 
   // Form States - Local
   const [envPath, setEnvPath] = useState('.env');
@@ -33,8 +36,12 @@ export default function DeployProject() {
   const [awsInstanceType, setAwsInstanceType] = useState('t3.micro');
   const [awsEnvironmentVars, setAwsEnvironmentVars] = useState('');
 
+  // Form States - Azure
+  const [azureAppName, setAzureAppName] = useState(repo || '');
+
   // Socket & Logs
   const [logs, setLogs] = useState<{ id: number, text: string, type: string, time: string }[]>([]);
+  const [currentDeploymentId, setCurrentDeploymentId] = useState('');
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   const addLog = (text: string, type = 'info') => {
@@ -68,33 +75,69 @@ export default function DeployProject() {
     startClone();
   }, [owner, repo]);
 
-  // 2. Setup Socket Connection for Live Logs
+  // 2. Initialize Socket Connection (Persistent)
   useEffect(() => {
-    if (step !== 'deploying' || !repo) return;
-
-    // Connect to backend WebSocket (adjust URL if needed)
     const socketUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:5000';
-    const newSocket = io(socketUrl);
+    const socket = io(socketUrl, { autoConnect: true });
 
-    newSocket.emit('join-deployment', repo);
+    socket.on('connect', () => {
+      console.log('✅ Socket connected:', socket.id);
+    });
 
-    // Listen for deployment logs (works for both local and AWS deployments)
-    newSocket.on('deployment-log', (data) => {
+    // Azure deployment logs
+    socket.on('deploy:log', (message) => {
+      addLog(message, 'info');
+    });
+
+    socket.on('deploy:done', (data) => {
+      addLog(`✅ Deployment completed successfully!`, 'success');
+      if (data?.url) {
+        addLog(`🔗 Live URL: ${data.url}`, 'success');
+      }
+      setStep('complete');
+      
+      // Store deploymentId and navigate after a brief delay
+      if (data?.deploymentId) {
+        setCurrentDeploymentId(data.deploymentId);
+        setTimeout(() => {
+          navigate(`/deployments/${encodeURIComponent(data.deploymentId)}`);
+        }, 2000);
+      }
+    });
+
+    socket.on('deploy:error', (data) => {
+      addLog(`❌ Deployment failed: ${data.message}`, 'error');
+      
+      // Navigate to deployment page to see error details
+      if (data?.deploymentId) {
+        setCurrentDeploymentId(data.deploymentId);
+        setTimeout(() => {
+          navigate(`/deployments/${encodeURIComponent(data.deploymentId)}`);
+        }, 2000);
+      }
+    });
+
+    // AWS/Local deployment logs
+    socket.on('deployment-log', (data) => {
       addLog(data.message, data.level);
     });
 
-    // Also listen for legacy build-log events
-    newSocket.on('build-log', (data) => {
+    socket.on('build-log', (data) => {
       addLog(data.text, data.type);
     });
 
-    newSocket.on('build-complete', () => {
+    socket.on('build-complete', () => {
       setStep('complete');
-      newSocket.disconnect();
+      
+      // Navigate to deployment page for local builds if we have a deployment ID
+      if (activeDeploymentId) {
+        setTimeout(() => {
+          navigate(`/deployments/${encodeURIComponent(activeDeploymentId)}`);
+        }, 2000);
+      }
     });
 
-    // Listen for deployment-complete event (new event from backend)
-    newSocket.on('deployment-complete', (data) => {
+    socket.on('deployment-complete', (data) => {
       addLog(`✅ Deployment completed successfully!`, 'success');
       if (data?.liveUrl) {
         addLog(`🔗 Live URL: ${data.liveUrl}`, 'success');
@@ -103,18 +146,33 @@ export default function DeployProject() {
 
       const deploymentIdToOpen = data?.deploymentId || activeDeploymentId;
       if (deploymentIdToOpen) {
-        navigate(`/deployments/${encodeURIComponent(deploymentIdToOpen)}`);
+        setCurrentDeploymentId(deploymentIdToOpen);
+        setTimeout(() => {
+          navigate(`/deployments/${encodeURIComponent(deploymentIdToOpen)}`);
+        }, 2000);
       }
-
-      newSocket.disconnect();
     });
 
-    return () => { newSocket.disconnect(); };
-  }, [step, repo, activeDeploymentId, navigate]);
+    // Store socket in ref
+    socketRef.current = socket;
+
+    // Cleanup on unmount
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [deploymentType, activeDeploymentId, navigate]);
+
+  // 3. Join deployment room when deploying
+  useEffect(() => {
+    if (step !== 'deploying' || !repo || !socketRef.current) return;
+    socketRef.current.emit('join-deployment', repo);
+  }, [step, repo]);
 
   const handleStartBuild = async () => {
     setStep('deploying');
-    addLog(`🚀 Starting ${deploymentType === 'aws' ? 'AWS EC2' : 'local'} deployment...`, 'system');
+    const deploymentLabel = deploymentType === 'aws' ? 'AWS EC2' : deploymentType === 'azure' ? 'Azure ACI' : 'local';
+    addLog(`🚀 Starting ${deploymentLabel} deployment...`, 'system');
     
     try {
       if (deploymentType === 'aws') {
@@ -145,6 +203,19 @@ export default function DeployProject() {
         if (result.ecrUri) addLog(`🐳 ECR URI: ${result.ecrUri}`, 'info');
         // Don't set step to complete here - wait for Socket.io 'deployment-complete' event
         // which confirms the actual deployment succeeded
+      } else if (deploymentType === 'azure') {
+        // Azure Deployment
+        addLog(`☁️  Building Docker image and pushing to Azure Container Registry...`, 'info');
+        const result = await deploymentService.startAzureDeployment({
+          repoUrl: repositoryUrl,
+          appName: azureAppName,
+          socketId: socketRef.current?.id || '',
+        });
+
+        addLog(`✅ Azure deployment initiated!`, 'success');
+        addLog(`🆔 App Name: ${azureAppName}`, 'info');
+        if (result.message) addLog(result.message, 'info');
+        // Wait for Socket.IO 'deploy:done' or 'deploy:error' events
       } else {
         // Local Deployment
         await deploymentService.saveFiles({
@@ -163,7 +234,8 @@ export default function DeployProject() {
       }
     } catch (err: any) {
       addLog(`❌ Error: ${err.message}`, 'error');
-      setStep(deploymentType === 'aws' ? 'aws' : 'env');
+      const stepMap = { aws: 'aws', azure: 'azure', local: 'env' };
+      setStep(stepMap[deploymentType] || 'env');
     }
   };
 
@@ -201,16 +273,16 @@ export default function DeployProject() {
           </div>
 
           {/* Configuration Form */}
-          {(step === 'type' || step === 'env' || step === 'dockerfile' || step === 'aws') && (
+          {(step === 'type' || step === 'env' || step === 'dockerfile' || step === 'aws' || step === 'azure') && (
             <div className="bg-[rgba(12,16,26,0.6)] border border-white/10 rounded-xl p-5 backdrop-blur-md shrink-0 max-h-[50vh] overflow-y-auto">
               {/* Deployment Type Selection */}
               {step === 'type' && (
                 <>
                   <h3 className="text-sm font-bold mb-4">1. Select Deployment Type</h3>
-                  <div className="flex gap-3 mb-4">
+                  <div className="flex gap-3 mb-4 flex-wrap">
                     <button
                       onClick={() => { setDeploymentType('local'); setStep('env'); }}
-                      className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition ${
+                      className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition ${
                         deploymentType === 'local'
                           ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-500/50'
                           : 'bg-black/40 text-white/60 border border-white/10 hover:border-white/30'
@@ -220,7 +292,7 @@ export default function DeployProject() {
                     </button>
                     <button
                       onClick={() => { setDeploymentType('aws'); setStep('aws'); }}
-                      className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition ${
+                      className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition ${
                         deploymentType === 'aws'
                           ? 'bg-orange-500/30 text-orange-300 border border-orange-500/50'
                           : 'bg-black/40 text-white/60 border border-white/10 hover:border-white/30'
@@ -228,10 +300,21 @@ export default function DeployProject() {
                     >
                       <Cloud className="w-4 h-4" /> AWS EC2
                     </button>
+                    <button
+                      onClick={() => { setDeploymentType('azure'); setStep('azure'); }}
+                      className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition ${
+                        deploymentType === 'azure'
+                          ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50'
+                          : 'bg-black/40 text-white/60 border border-white/10 hover:border-white/30'
+                      }`}
+                    >
+                      <Box className="w-4 h-4" /> Azure ACI
+                    </button>
                   </div>
                   <p className="text-xs text-white/50 mb-4">
                     <strong>Local:</strong> Runs on this server (localhost:4002+)<br/>
-                    <strong>AWS:</strong> Runs on EC2 with public IP
+                    <strong>AWS:</strong> Runs on EC2 with public IP<br/>
+                    <strong>Azure:</strong> Runs on Container Instances
                   </p>
                 </>
               )}
@@ -300,6 +383,36 @@ export default function DeployProject() {
                   </div>
                 </>
               )}
+
+              {/* Azure Deployment Configuration */}
+              {step === 'azure' && deploymentType === 'azure' && (
+                <>
+                  <h3 className="text-sm font-bold mb-4 text-blue-300">☁️ Azure Container Instance Deployment</h3>
+                  <p className="text-xs text-white/50 mb-4">Deploy your application to Azure Container Instances (ACI). Logs will stream in real-time below.</p>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs text-white/60 mb-1 block">Application Name</label>
+                      <input
+                        type="text"
+                        value={azureAppName}
+                        onChange={(e) => setAzureAppName(e.target.value)}
+                        placeholder="my-app"
+                        className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-xs focus:border-blue-500/50 outline-none"
+                      />
+                      <p className="text-xs text-white/40 mt-1">Must be lowercase, alphanumeric and dashes only</p>
+                    </div>
+
+                    <button
+                      onClick={handleStartBuild}
+                      disabled={!azureAppName || !/^[a-z0-9-]+$/.test(azureAppName)}
+                      className="w-full bg-blue-500/20 text-blue-300 py-2 rounded-lg font-medium hover:bg-blue-500/30 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      🚀 Deploy to Azure ACI
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -313,12 +426,12 @@ export default function DeployProject() {
                 {step === 'cloning' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Clone
               </div>
               <div className="w-4 h-[1px] bg-white/20" />
-              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${step === 'cloning' ? 'text-white/30' : ['type', 'env', 'dockerfile', 'aws', 'deploying', 'complete'].includes(step) ? 'text-emerald-400' : 'text-cyan-400'}`}>
-                {step === 'cloning' ? <div className="w-4 h-4 rounded-full border border-white/30" /> : ['type', 'env', 'dockerfile', 'aws', 'deploying', 'complete'].includes(step) ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Config
+              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${step === 'cloning' ? 'text-white/30' : ['type', 'env', 'dockerfile', 'aws', 'azure', 'deploying', 'complete'].includes(step) ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                {step === 'cloning' ? <div className="w-4 h-4 rounded-full border border-white/30" /> : ['type', 'env', 'dockerfile', 'aws', 'azure', 'deploying', 'complete'].includes(step) ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Config
               </div>
               <div className="w-4 h-[1px] bg-white/20" />
-              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${['cloning', 'type', 'env', 'dockerfile', 'aws'].includes(step) ? 'text-white/30' : step === 'complete' ? 'text-emerald-400' : 'text-cyan-400'}`}>
-                {['cloning', 'type', 'env', 'dockerfile', 'aws'].includes(step) ? <div className="w-4 h-4 rounded-full border border-white/30" /> : step === 'complete' ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Deploy
+              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${['cloning', 'type', 'env', 'dockerfile', 'aws', 'azure'].includes(step) ? 'text-white/30' : step === 'complete' ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                {['cloning', 'type', 'env', 'dockerfile', 'aws', 'azure'].includes(step) ? <div className="w-4 h-4 rounded-full border border-white/30" /> : step === 'complete' ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Deploy
               </div>
             </div>
             {step === 'complete' && (

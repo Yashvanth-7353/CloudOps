@@ -29,6 +29,20 @@ export const deploymentService = {
     }
   },
 
+  // Azure deployment (builds Docker image, pushes to ACR, runs on ACI)
+  startAzureDeployment: async (data: {
+    repoUrl: string;
+    appName: string;
+    socketId?: string;
+  }) => {
+    try {
+      const response = await axiosClient.post('/api/azure/deploy', data);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to start Azure deployment');
+    }
+  },
+
   initDeploy: async (repositoryName: string, repositoryOwner: string) => {
     try {
       const response = await axiosClient.post('/api/deploy/init', { repositoryName, repositoryOwner });

@@ -28,16 +28,12 @@ type DashboardAnalytics = {
     successRate?: number;
     avgDeployTimeMs?: number;
     totalDeployTimeMs?: number;
+    awsDeployments?: number;
+    azureDeployments?: number;
   };
   statusBreakdown?: Array<{ status: string; count: number }>;
   frameworkBreakdown?: Array<{ framework: string; count: number }>;
   deploymentTrend?: Array<{ date: string; count: number; success: number; failed: number }>;
-};
-
-type CostAnalytics = {
-  totalEstimatedCostUsd?: number;
-  averageDailyCostUsd?: number;
-  costByDay?: Array<{ date: string; deployments: number; estimatedCostUsd: number }>;
 };
 
 type PerformanceAnalytics = {
@@ -111,14 +107,7 @@ export default function AnalyticsPage(){
     },
   });
 
-  const costsQuery = useQuery({
-    queryKey: ['analytics-costs-live', queryParams],
-    queryFn: async () => {
-      const response = await analyticsService.getCostAnalytics(queryParams);
-      const payload = response.data as any;
-      return (payload?.data || payload || {}) as CostAnalytics;
-    },
-  });
+
 
   const performanceQuery = useQuery({
     queryKey: ['analytics-performance-live', queryParams],
@@ -129,12 +118,11 @@ export default function AnalyticsPage(){
     },
   });
 
-  const loading = dashboardQuery.isLoading || deploymentsQuery.isLoading || costsQuery.isLoading || performanceQuery.isLoading;
-  const loadError = dashboardQuery.error || deploymentsQuery.error || costsQuery.error || performanceQuery.error;
+  const loading = dashboardQuery.isLoading || deploymentsQuery.isLoading || performanceQuery.isLoading;
+  const loadError = dashboardQuery.error || deploymentsQuery.error || performanceQuery.error;
 
   const dashboard = dashboardQuery.data || {};
   const performance = performanceQuery.data || {};
-  const costs = costsQuery.data || {};
   const deployments = deploymentsQuery.data || {};
 
   const statCards = [
@@ -161,6 +149,18 @@ export default function AnalyticsPage(){
       value: `${Number(performance.failureRate || 0).toFixed(1)}%`,
       icon: <ShieldAlert className="h-5 w-5" />,
       tone: 'text-rose-200',
+    },
+    {
+      label: 'No of deploys in AWS',
+      value: String(dashboard.summary?.awsDeployments || 0),
+      icon: <TrendingUp className="h-5 w-5" />,
+      tone: 'text-orange-200',
+    },
+    {
+      label: 'No of deploys in Azure',
+      value: String(dashboard.summary?.azureDeployments || 0),
+      icon: <TrendingUp className="h-5 w-5" />,
+      tone: 'text-blue-200',
     },
   ];
 
@@ -202,7 +202,7 @@ export default function AnalyticsPage(){
             </div>
           ) : (
             <>
-              <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
                 {statCards.map((card) => (
                   <div key={card.label} className="rounded-xl border border-white/10 bg-[rgba(12,16,26,0.7)] p-4">
                     <div className="flex items-center justify-between">
@@ -242,23 +242,7 @@ export default function AnalyticsPage(){
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-white/10 bg-[rgba(12,16,26,0.7)] p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-white">Estimated infrastructure cost</h3>
-                      <div className="text-xs text-white/60">{formatUsd(costs.totalEstimatedCostUsd || 0)} total</div>
-                    </div>
-                    <div style={{ width: '100%', height: 240 }}>
-                      <ResponsiveContainer>
-                        <LineChart data={costs.costByDay || []}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                          <XAxis dataKey="date" tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 11 }} />
-                          <YAxis tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 11 }} />
-                          <Tooltip contentStyle={chartTooltipStyle} formatter={(value: any) => [formatUsd(Number(value || 0)), 'Cost']} />
-                          <Line type="monotone" dataKey="estimatedCostUsd" stroke="#60a5fa" strokeWidth={2.5} dot={false} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
+
                 </div>
 
                 <div className="space-y-4">

@@ -152,6 +152,19 @@ const getAnalyticsDashboard = async (req, res) => {
         const days = parseDays(req.query.days, 30);
         const baseQuery = buildBaseQuery(req, { days });
 
+        // For now, show all deployments if user has no deployments (temporary fix)
+        const userDeploymentCount = await Deployment.countDocuments(buildBaseQuery(req, {}));
+        const useUserFilter = userDeploymentCount > 0;
+
+        const queryToUse = useUserFilter ? baseQuery : {};
+        if (!useUserFilter && req.query.projectId) {
+            queryToUse.projectId = toObjectId(req.query.projectId);
+        }
+        if (!useUserFilter && days) {
+            const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+            queryToUse.createdAt = { $gte: startDate };
+        }
+
         const [
             totalDeployments,
             successfulDeployments,
@@ -162,11 +175,11 @@ const getAnalyticsDashboard = async (req, res) => {
             trend,
             recentDeployments,
         ] = await Promise.all([
-            Deployment.countDocuments(baseQuery),
-            Deployment.countDocuments({ ...baseQuery, status: 'success' }),
+            Deployment.countDocuments(queryToUse),
+            Deployment.countDocuments({ ...queryToUse, status: 'success' }),
             Deployment.countDocuments(buildBaseQuery(req, { statuses: ACTIVE_STATUSES })),
             Deployment.aggregate([
-                { $match: { ...baseQuery, totalTime: { $gt: 0 } } },
+                { $match: { ...queryToUse, totalTime: { $gt: 0 } } },
                 {
                     $group: {
                         _id: null,
@@ -176,18 +189,18 @@ const getAnalyticsDashboard = async (req, res) => {
                 },
             ]),
             Deployment.aggregate([
-                { $match: baseQuery },
+                { $match: queryToUse },
                 { $group: { _id: '$status', count: { $sum: 1 } } },
                 { $sort: { count: -1 } },
             ]),
             Deployment.aggregate([
-                { $match: baseQuery },
+                { $match: queryToUse },
                 { $group: { _id: { $ifNull: ['$framework', 'unknown'] }, count: { $sum: 1 } } },
                 { $sort: { count: -1 } },
                 { $limit: 8 },
             ]),
             Deployment.aggregate([
-                { $match: baseQuery },
+                { $match: queryToUse },
                 {
                     $group: {
                         _id: {
@@ -210,7 +223,7 @@ const getAnalyticsDashboard = async (req, res) => {
                 },
                 { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
             ]),
-            Deployment.find(baseQuery)
+            Deployment.find(queryToUse)
                 .sort({ createdAt: -1 })
                 .limit(6)
                 .select('_id repositoryName status framework totalTime createdAt publicUrl'),

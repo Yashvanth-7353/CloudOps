@@ -205,6 +205,42 @@ const getDeploymentLogs = async (req, res) => {
     }
 };
 
+const getDeploymentServiceLogs = async (req, res) => {
+    try {
+        const Deployment = require('../models/Deployment');
+        const { deploymentId } = req.params;
+        const { service } = req.query; // 'aws' or 'azure'
+
+        const deployment = await Deployment.findById(deploymentId);
+        if (!deployment) {
+            return res.status(404).json({ success: false, error: 'Deployment not found' });
+        }
+
+        let logs = [];
+        if (service === 'aws') {
+            logs = deployment.awsLogs || [];
+        } else if (service === 'azure') {
+            logs = deployment.azureLogs || [];
+        } else {
+            logs = deployment.logs || [];
+        }
+
+        const limit = Number(req.query.limit || 100);
+        const skip = Number(req.query.skip || 0);
+        const paginatedLogs = logs.slice(skip, skip + limit);
+
+        return res.status(200).json({
+            success: true,
+            service: service || 'all',
+            deploymentService: deployment.deploymentService,
+            total: logs.length,
+            logs: paginatedLogs,
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 const stopDeployment = async (req, res) => {
     try {
         const result = await deploymentEngine.stopDeployment(req.params.deploymentId, req.app.get('io'));
@@ -397,6 +433,7 @@ module.exports = {
     startAWSEC2Deployment,
     getDeploymentStatus,
     getDeploymentLogs,
+    getDeploymentServiceLogs,
     stopDeployment,
     restartDeployment,
     handleWebhook,

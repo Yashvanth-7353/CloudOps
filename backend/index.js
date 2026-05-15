@@ -86,6 +86,7 @@ const userRoutes = require('./src/routes/userRoutes');
 const deployRoutes = require('./src/routes/deployRoutes');
 const deploymentRoutes = require('./src/routes/deploymentRoutes');
 const awsRoutes = require('./src/routes/awsRoutes');
+const azureDeployRoutes = require('./src/routes/azureDeployRoutes');
 const projectRoutes = require('./src/routes/projectRoutes');
 
 app.use('/auth', authRoutes);
@@ -96,6 +97,7 @@ app.use('/api', apiRoutes);
 app.use('/api', deployRoutes);
 app.use('/api/deploy', deploymentRoutes);
 app.use('/api/aws', awsRoutes); // AWS integration routes
+app.use('/api/azure', azureDeployRoutes); // Azure integration routes
 app.use('/api/projects', projectRoutes);
 
 // --- 4. START SERVER ---

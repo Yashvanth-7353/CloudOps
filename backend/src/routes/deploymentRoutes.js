@@ -18,6 +18,7 @@ router.post('/aws-ec2', deploymentController.startAWSEC2Deployment);
 // 5. Deployment lifecycle APIs
 router.get('/:deploymentId/status', deploymentController.getDeploymentStatus);
 router.get('/:deploymentId/logs', deploymentController.getDeploymentLogs);
+router.get('/:deploymentId/service-logs', deploymentController.getDeploymentServiceLogs);
 router.post('/:deploymentId/stop', deploymentController.stopDeployment);
 router.post('/:deploymentId/restart', deploymentController.restartDeployment);
 
