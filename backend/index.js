@@ -72,36 +72,43 @@ const connectMongo = async () => {
         }
 
         console.error(err);
-        console.warn('⚠️ Continuing without a MongoDB connection. Routes that depend on the database may still fail until Atlas is reachable.');
+        throw err;
     }
 };
 
-connectMongo();
+const startServer = async () => {
+    await connectMongo();
 
-// --- 3. ROUTES ---
-const authRoutes = require('./src/routes/authRoutes');
-const githubRoutes = require('./src/routes/githubRoutes');
-const apiRoutes = require('./src/routes/apiRoutes');
-const userRoutes = require('./src/routes/userRoutes');
-const deployRoutes = require('./src/routes/deployRoutes');
-const deploymentRoutes = require('./src/routes/deploymentRoutes');
-const awsRoutes = require('./src/routes/awsRoutes');
-const azureDeployRoutes = require('./src/routes/azureDeployRoutes');
-const projectRoutes = require('./src/routes/projectRoutes');
+    // --- 3. ROUTES ---
+    const authRoutes = require('./src/routes/authRoutes');
+    const githubRoutes = require('./src/routes/githubRoutes');
+    const apiRoutes = require('./src/routes/apiRoutes');
+    const userRoutes = require('./src/routes/userRoutes');
+    const deployRoutes = require('./src/routes/deployRoutes');
+    const deploymentRoutes = require('./src/routes/deploymentRoutes');
+    const awsRoutes = require('./src/routes/awsRoutes');
+    const azureDeployRoutes = require('./src/routes/azureDeployRoutes');
+    const projectRoutes = require('./src/routes/projectRoutes');
 
-app.use('/auth', authRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/github', githubRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api', apiRoutes);
-app.use('/api', deployRoutes);
-app.use('/api/deploy', deploymentRoutes);
-app.use('/api/aws', awsRoutes); // AWS integration routes
-app.use('/api/azure', azureDeployRoutes); // Azure integration routes
-app.use('/api/projects', projectRoutes);
+    app.use('/auth', authRoutes);
+    app.use('/api/auth', authRoutes);
+    app.use('/api/github', githubRoutes);
+    app.use('/api/users', userRoutes);
+    app.use('/api', apiRoutes);
+    app.use('/api', deployRoutes);
+    app.use('/api/deploy', deploymentRoutes);
+    app.use('/api/aws', awsRoutes); // AWS integration routes
+    app.use('/api/azure', azureDeployRoutes); // Azure integration routes
+    app.use('/api/projects', projectRoutes);
 
-// --- 4. START SERVER ---
-// CRITICAL: We use server.listen() here, NOT app.listen()!
-server.listen(PORT, () => {
-    console.log(`✅ Server is sprinting on http://localhost:${PORT}`);
+    // --- 4. START SERVER ---
+    // CRITICAL: We use server.listen() here, NOT app.listen()!
+    server.listen(PORT, () => {
+        console.log(`✅ Server is sprinting on http://localhost:${PORT}`);
+    });
+};
+
+startServer().catch((err) => {
+    console.error('🚨 Server startup aborted because MongoDB connection failed.');
+    process.exit(1);
 });

@@ -16,8 +16,24 @@ class StaticDeploymentStrategy {
       ? source
       : 'app';
 
+    // Add log locally for immediate use
     deployment.addLog(validSource, normalizedLevel, message, {}, 's3-static');
-    deployment.save().catch((err) => {
+
+    // Persist atomically using findOneAndUpdate to avoid concurrent save conflicts
+    const logEntry = {
+      timestamp: new Date(),
+      source: validSource,
+      level: normalizedLevel,
+      message,
+      data: {},
+      deploymentService: 's3-static',
+    };
+
+    Deployment.findOneAndUpdate(
+      { _id: deployment._id },
+      { $push: { logs: logEntry } },
+      { new: true }
+    ).catch((err) => {
       console.error('Failed to persist deployment log:', err.message);
     });
 
@@ -163,17 +179,22 @@ class StaticDeploymentStrategy {
       deployment.phase = 'complete';
       deployment.healthStatus = 'healthy';
       deployment.completedAt = new Date();
-      deployment.infrastructure = {
-        ...deployment.infrastructure,
-        s3: {
-          bucket: staticBuildService.getS3BucketName(),
-          prefix: siteSlug,
-          siteSlug,
-          websiteUrl: publicUrl,
-        },
-        liveUrl: publicUrl,
-        deployState: 'live',
+      
+      // Update infrastructure with only the fields we need (avoid undefined values)
+      if (!deployment.infrastructure) {
+        deployment.infrastructure = {};
+      }
+      deployment.infrastructure.provider = deployment.infrastructure.provider || 'aws';
+      deployment.infrastructure.targetType = 's3-static';
+      deployment.infrastructure.s3 = {
+        bucket: staticBuildService.getS3BucketName(),
+        prefix: siteSlug,
+        siteSlug,
+        websiteUrl: publicUrl,
       };
+      deployment.infrastructure.liveUrl = publicUrl;
+      deployment.infrastructure.deployState = 'live';
+      
       deployment.markAsSuccess(publicUrl, Date.now() - deployment.startedAt.getTime());
       this.emit(io, deployment, `Deployment complete! Live URL: ${publicUrl}`, 'success', 'system');
       await deployment.save();
