@@ -4,6 +4,7 @@
  */
 
 const mongoose = require('mongoose');
+const { maskSecrets, sanitizeData } = require('../utils/logSanitizer');
 
 const DeploymentSchema = new mongoose.Schema(
   {
@@ -92,66 +93,76 @@ const DeploymentSchema = new mongoose.Schema(
 
     // Infrastructure / cloud deployment details
     infrastructure: {
-      provider: {
-        type: String,
-        default: 'aws',
+      type: {
+        provider: {
+          type: String,
+          default: 'aws',
+        },
+        targetType: {
+          type: String,
+          enum: ['local', 'ssh', 'aws', 'azure', 's3-static'],
+        },
+        s3: {
+          bucket: { type: String, default: null },
+          prefix: { type: String, default: null },
+          siteSlug: { type: String, default: null },
+          websiteUrl: { type: String, default: null },
+          publicIp: { type: String, default: null },
+        },
+        region: { type: String, default: null },
+        target: { type: mongoose.Schema.Types.Mixed, default: null },
+        ecr: {
+          repositoryArn: { type: String, default: null },
+          repositoryName: { type: String, default: null },
+          repositoryUri: { type: String, default: null },
+          imageUri: { type: String, default: null },
+          imageTag: { type: String, default: null },
+        },
+        ec2: {
+          instanceId: { type: String, default: null },
+          publicIp: { type: String, default: null },
+          privateIp: { type: String, default: null },
+          instanceType: { type: String, default: null },
+          keyName: { type: String, default: null },
+          securityGroupIds: { type: [String], default: [] },
+          vpcId: { type: String, default: null },
+        },
+        acr: {
+          loginServer: { type: String, default: null },
+          repositoryName: { type: String, default: null },
+          imageUri: { type: String, default: null },
+          imageTag: { type: String, default: null },
+          imageName: { type: String, default: null },
+        },
+        aci: {
+          containerGroupName: { type: String, default: null },
+          containerName: { type: String, default: null },
+          resourceGroupName: { type: String, default: null },
+          location: { type: String, default: null },
+          cpu: { type: Number, default: null },
+          memoryInGb: { type: Number, default: null },
+          status: { type: String, default: null },
+          fqdn: { type: String, default: null },
+          ipAddress: { type: String, default: null },
+          containerGroupId: { type: String, default: null },
+        },
+        container: {
+          name: { type: String, default: null },
+          imageName: { type: String, default: null },
+          port: { type: Number, default: null },
+        },
+        liveUrl: { type: String, default: null },
+        deployState: { type: String, default: null },
       },
-      targetType: {
-        type: String,
-        enum: ['local', 'ssh', 'aws', 'azure', 's3-static'],
-      },
-      s3: {
-        bucket: String,
-        prefix: String,
-        siteSlug: String,
-        websiteUrl: String,
-      },
-      region: String,
-      target: mongoose.Schema.Types.Mixed,
-      // AWS-specific fields
-      ecr: {
-        repositoryArn: String,
-        repositoryName: String,
-        repositoryUri: String,
-        imageUri: String,
-        imageTag: String,
-      },
-      ec2: {
-        instanceId: String,
-        publicIp: String,
-        privateIp: String,
-        instanceType: String,
-        keyName: String,
-        securityGroupIds: [String],
-        vpcId: String,
-      },
-      // Azure-specific fields
-      acr: {
-        loginServer: String,
-        repositoryName: String,
-        imageUri: String,
-        imageTag: String,
-        imageName: String,
-      },
-      aci: {
-        containerGroupName: String,
-        containerName: String,
-        resourceGroupName: String,
-        location: String,
-        cpu: Number,
-        memoryInGb: Number,
-        status: String,
-        fqdn: String,
-        ipAddress: String,
-        containerGroupId: String,
-      },
-      container: {
-        name: String,
-        imageName: String,
-        port: Number,
-      },
-      liveUrl: String,
-      deployState: String,
+      default: () => ({
+        provider: 'aws',
+        ecr: {},
+        ec2: {},
+        acr: {},
+        aci: {},
+        s3: {},
+        container: {},
+      }),
     },
 
     // ECS deployment
@@ -283,6 +294,69 @@ const DeploymentSchema = new mongoose.Schema(
   }
 );
 
+const INFRASTRUCTURE_OBJECT_KEYS = ['ecr', 'ec2', 'acr', 'aci', 's3', 'container'];
+const DEFAULT_INFRASTRUCTURE = {
+  provider: 'aws',
+  ecr: {},
+  ec2: {},
+  acr: {},
+  aci: {},
+  s3: {},
+  container: {},
+};
+
+function normalizeInfrastructureValue(value) {
+  const normalized = (!value || typeof value !== 'object' || Array.isArray(value))
+    ? { ...DEFAULT_INFRASTRUCTURE }
+    : { ...DEFAULT_INFRASTRUCTURE, ...value };
+
+  for (const key of INFRASTRUCTURE_OBJECT_KEYS) {
+    if (
+      normalized[key] == null
+      || typeof normalized[key] !== 'object'
+      || Array.isArray(normalized[key])
+    ) {
+      normalized[key] = {};
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeInfrastructureUpdate(update = {}) {
+  const set = update.$set || update;
+
+  if (set.infrastructure !== undefined) {
+    set.infrastructure = normalizeInfrastructureValue(set.infrastructure);
+  }
+
+  for (const key of INFRASTRUCTURE_OBJECT_KEYS) {
+    const dottedKey = `infrastructure.${key}`;
+    if (
+      set[dottedKey] !== undefined
+      && (set[dottedKey] == null || typeof set[dottedKey] !== 'object' || Array.isArray(set[dottedKey]))
+    ) {
+      set[dottedKey] = {};
+    }
+  }
+
+  if (update.$set) {
+    update.$set = set;
+  }
+}
+
+DeploymentSchema.pre('save', function normalizeInfrastructure() {
+  this.infrastructure = normalizeInfrastructureValue(this.infrastructure);
+});
+
+function normalizeInfrastructureOnUpdate() {
+  normalizeInfrastructureUpdate(this.getUpdate());
+}
+
+DeploymentSchema.pre('updateOne', normalizeInfrastructureOnUpdate);
+DeploymentSchema.pre('findOneAndUpdate', normalizeInfrastructureOnUpdate);
+DeploymentSchema.pre('updateMany', normalizeInfrastructureOnUpdate);
+
 // Indexes for efficient querying
 DeploymentSchema.index({ projectId: 1, createdAt: -1 });
 DeploymentSchema.index({ userId: 1, createdAt: -1 });
@@ -295,8 +369,8 @@ DeploymentSchema.methods.addLog = function (source, level, message, data = {}, d
     timestamp: new Date(),
     source,
     level,
-    message,
-    data,
+    message: maskSecrets(message || ''),
+    data: sanitizeData(data),
   };
 
   // Add to unified logs

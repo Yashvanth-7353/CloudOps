@@ -163,10 +163,13 @@ export default function DeployProject() {
       addLog(data.text, data.type);
     });
 
-    socket.on('build-complete', (data?: { status?: string; publicUrl?: string; liveUrl?: string; deploymentId?: string }) => {
+    socket.on('build-complete', (data?: { status?: string; publicUrl?: string; liveUrl?: string; publicIp?: string; deploymentId?: string }) => {
       const url = data?.publicUrl || data?.liveUrl;
       if (data?.status === 'success' && url) {
         setPublicUrl(url);
+        if (data.publicIp) {
+          addLog(`Public IP: ${data.publicIp}`, 'success');
+        }
         saveDeployedProject(url);
         setStep('complete');
         if (data.deploymentId) {
@@ -193,6 +196,9 @@ export default function DeployProject() {
         addLog(`🔗 Live URL: ${url}`, 'success');
         setPublicUrl(url);
         saveDeployedProject(url);
+      }
+      if (data?.publicIp) {
+        addLog(`Public IP: ${data.publicIp}`, 'success');
       }
       setStep('complete');
 

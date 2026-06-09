@@ -32,6 +32,11 @@ const decodeJWT = (token: string) => {
   }
 };
 
+type AuthResponse = {
+  token?: string;
+  user?: any;
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = React.useState(false);
   const [user, setUser] = React.useState(null);
@@ -56,16 +61,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         // Regular login
         const response = await authService.login(credentials.email, credentials.password);
-        if (!response.data?.token) {
+        if (!(response.data as any)?.token) {
           localStorage.removeItem('cloudops_auth_token');
           setIsAuthenticated(false);
           setUser(null);
           return false;
         }
 
-        localStorage.setItem('cloudops_auth_token', response.data.token);
+        localStorage.setItem('cloudops_auth_token', (response.data as any).token);
         setIsAuthenticated(true);
-        setUser(response.data.user);
+        setUser((response.data as any).user);
         return true;
       }
     } catch (error) {
@@ -90,7 +95,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (token) {
       try {
         const response = await authService.verify();
-        setUser(response.data.user);
+        const data = response.data as AuthResponse;
+        setUser(data.user || null);
         setIsAuthenticated(true);
       } catch (error) {
         localStorage.removeItem('cloudops_auth_token');

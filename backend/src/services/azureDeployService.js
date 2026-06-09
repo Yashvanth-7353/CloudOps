@@ -10,6 +10,7 @@ const { spawn } = require('child_process');
 const simpleGit = require('simple-git');
 const { v4: uuidv4 } = require('uuid');
 const Deployment = require('../models/Deployment');
+const { maskSecrets } = require('../utils/logSanitizer');
 
 const TEMP_ROOT = path.resolve(__dirname, '../../temp/azure');
 const DEFAULT_CONTAINER_PORT = 3000;
@@ -46,12 +47,12 @@ function runCommand(command, args, options = {}, onData) {
 
     child.on('error', (err) => reject(err));
     child.stdout.on('data', (chunk) => {
-      const text = chunk.toString();
+      const text = maskSecrets(chunk.toString());
       output += text;
       if (onData) onData(text);
     });
     child.stderr.on('data', (chunk) => {
-      const text = chunk.toString();
+      const text = maskSecrets(chunk.toString());
       output += text;
       if (onData) onData(text);
     });
@@ -196,8 +197,9 @@ async function uploadArtifacts({ deploymentId, summaryPath, logsPath }) {
 }
 
 function emitLog(io, socketId, message) {
-  console.log(message);
-  if (socketId && io) io.to(socketId).emit('deploy:log', message);
+  const sanitizedMessage = maskSecrets(message);
+  console.log(sanitizedMessage);
+  if (socketId && io) io.to(socketId).emit('deploy:log', sanitizedMessage);
 }
 
 /**
@@ -305,6 +307,8 @@ async function runAzureDeployment({
     });
 
     if (deployment) {
+      deployment.infrastructure = deployment.infrastructure || {};
+      deployment.infrastructure.acr = deployment.infrastructure.acr || {};
       deployment.infrastructure.acr.imageUri = fullImage;
       deployment.infrastructure.acr.imageTag = deploymentId;
       deployment.infrastructure.acr.imageName = sanitizedName;
@@ -337,6 +341,8 @@ async function runAzureDeployment({
     emitLog(io, socketId, `[Azure] Container running at: ${appUrl}`);
 
     if (deployment) {
+      deployment.infrastructure = deployment.infrastructure || {};
+      deployment.infrastructure.aci = deployment.infrastructure.aci || {};
       deployment.infrastructure.aci.containerGroupName = aciResult.containerGroup;
       deployment.infrastructure.aci.containerName = aciResult.containerName;
       deployment.infrastructure.aci.fqdn = aciResult.fqdn;

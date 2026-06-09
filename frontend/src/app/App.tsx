@@ -9,6 +9,46 @@ import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { AuthProvider } from '@/app/providers/auth-provider';
 import './App.css';
 
+const normalizeBasename = (value: string) => {
+  if (!value || value === './' || value === '/') return '/';
+  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash : `${withLeadingSlash}/`;
+};
+
+const computeRouterBasename = () => {
+  const baseUrl = import.meta.env.BASE_URL;
+  if (baseUrl && baseUrl !== './') {
+    return normalizeBasename(baseUrl);
+  }
+
+  const baseTagHref = document.querySelector('base')?.getAttribute('href');
+  if (baseTagHref && baseTagHref !== './') {
+    return normalizeBasename(baseTagHref);
+  }
+
+  const pathSegments = window.location.pathname.split('/').filter(Boolean);
+  const knownRouteRoots = new Set([
+    'login',
+    'demo',
+    'dashboard',
+    'analytics',
+    'billing',
+    'settings',
+    'deployments',
+    'deployment-logs',
+    'live-projects',
+    'environment-variables',
+    'deploy',
+    'docs',
+  ]);
+
+  if (pathSegments.length > 0 && !knownRouteRoots.has(pathSegments[0])) {
+    return normalizeBasename(`/${pathSegments[0]}/`);
+  }
+
+  return '/';
+};
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -25,7 +65,7 @@ function App() {
         <ErrorBoundary>
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
-              <Router>
+              <Router basename={computeRouterBasename()}>
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}

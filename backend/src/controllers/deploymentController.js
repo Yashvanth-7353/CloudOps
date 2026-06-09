@@ -303,10 +303,24 @@ const startStaticBuild = async (req, res) => {
         sendLog(`Project directory: ${rootDirectory || './'}`, 'info');
         sendLog('Building and publishing dist files to S3.', 'system');
 
+        const backendNode = await frameworkDetector.isBackendNodeProject(projectPath);
+        if (backendNode.isBackend) {
+            throw new Error(
+                'This repository is a Node.js backend API. Use Backend API deployment instead of S3 static hosting.'
+            );
+        }
+
+        const siteSlug = staticBuildService.generateSiteSlug(repositoryName);
+
         const detection = await frameworkDetector.detectFramework(clonePath, {
             rootDirectory,
             mode: 'static',
         });
+
+        if (detection.deployType === 'container') {
+            throw new Error(`${detection.displayName} cannot be deployed as a static S3 website.`);
+        }
+
         const finalBuildCommand = buildCommand || detection.buildCommand;
         const finalOutputDir = outputDirectory || detection.outputDirectory;
 
@@ -317,12 +331,12 @@ const startStaticBuild = async (req, res) => {
                 projectPath,
                 buildCommand: finalBuildCommand,
                 environmentVariables,
+                siteSlug,
                 onLog: sendLog,
             });
         }
 
         sendLog('Publishing static assets to S3...', 'system');
-        const siteSlug = staticBuildService.generateSiteSlug(repositoryName);
         const publicUrl = await staticBuildService.deployStaticToS3({
             projectPath,
             outputDirectory: finalOutputDir,

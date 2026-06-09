@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * DEPLOYMENT PIPELINE VISUALIZATION
  * Integration Guide
@@ -50,9 +51,9 @@ import {
   DeploymentPipelineVisualization, 
   PipelineStage 
 } from '@/components/deployments';
-import { deploymentService } from '@/services/auth-service';
+import { deploymentService } from '@/services/deployment-service';
 import { Package, Cog, Download, Box, Cloud, Rocket, Globe, CheckCircle2 } from 'lucide-react';
-import io from 'socket.io-client';
+import { io } from 'socket.io-client';
 
 interface DeploymentData {
   _id: string;

@@ -112,7 +112,8 @@ export default function DeploymentsPage() {
         }
 
         const response = await deploymentService.getAll({ userId: currentUserId });
-        const raw = response?.data?.data || response?.data?.deployments || response?.data || [];
+        const responseData = response?.data as any;
+        const raw = responseData?.data || responseData?.deployments || responseData || [];
         const nextDeployments = Array.isArray(raw) ? raw : [];
 
         if (cancelled) return;
@@ -184,7 +185,8 @@ export default function DeploymentsPage() {
                     setConnectedUserId(currentUserId);
                   }
                   const response = await deploymentService.getAll({ userId: currentUserId });
-                  const raw = response?.data?.data || response?.data?.deployments || response?.data || [];
+                  const responseData = response?.data as any;
+                  const raw = responseData?.data || responseData?.deployments || responseData || [];
                   const nextDeployments = Array.isArray(raw) ? raw : [];
                   const userDeployments = nextDeployments
                     .filter((item: DeploymentRecord) => String((item as any)?.userId || '') === String(currentUserId))

@@ -30,7 +30,7 @@ const githubCallbackHandler = async (req, res) => {
             return res.status(400).json({ error: 'Failed to get access token' });
         }
 
-        console.log('✅ Access Token Secured:', accessToken);
+        console.log('✅ GitHub access token secured for user authentication');
 
         const userResponse = await axios.get('https://api.github.com/user', {
             headers: {

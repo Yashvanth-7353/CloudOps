@@ -48,6 +48,9 @@ type DeploymentDetails = {
   commitDate?: string;
   dockerImageUri?: string;
   dockerImageTag?: string;
+  dockerBuildTime?: number;
+  dockerImageSize?: number;
+  buildTime?: number;
   infrastructure?: {
     provider?: string;
     targetType?: string;
@@ -64,12 +67,38 @@ type DeploymentDetails = {
       publicHost?: string | null;
       publicUrl?: string | null;
     };
+    s3?: {
+      bucket?: string | null;
+      prefix?: string | null;
+      siteSlug?: string | null;
+      websiteUrl?: string | null;
+      publicIp?: string | null;
+    };
     ecr?: {
       repositoryArn?: string | null;
       repositoryName?: string | null;
       repositoryUri?: string | null;
       imageUri?: string | null;
       imageTag?: string | null;
+    };
+    acr?: {
+      loginServer?: string | null;
+      repositoryName?: string | null;
+      imageUri?: string | null;
+      imageTag?: string | null;
+      imageName?: string | null;
+    };
+    aci?: {
+      containerGroupName?: string | null;
+      containerName?: string | null;
+      resourceGroupName?: string | null;
+      resourceGroup?: string | null;
+      location?: string | null;
+      cpu?: number | null;
+      memoryInGb?: number | null;
+      status?: string | null;
+      fqdn?: string | null;
+      ipAddress?: string | null;
     };
     ec2?: {
       instanceId?: string | null;
@@ -192,7 +221,12 @@ export default function DeploymentDetailPage() {
   const ecrImageUri = infrastructure?.ecr?.imageUri || deployment?.dockerImageUri || metadata?.ecrImageUri || metadata?.dockerImageUri || 'Pending';
   const ecrImageTag = deployment?.dockerImageTag || infrastructure?.ecr?.imageTag || infrastructure?.acr?.imageTag || metadata?.dockerImageTag || 'Pending';
   const ec2InstanceId = infrastructure?.ec2?.instanceId || deployment?.metadata?.ec2InstanceId || 'Pending';
-  const ec2PublicIp = infrastructure?.ec2?.publicIp || deployment?.metadata?.ec2PublicIp || 'Pending';
+  const deploymentPublicIp = infrastructure?.ec2?.publicIp
+    || infrastructure?.s3?.publicIp
+    || infrastructure?.aci?.ipAddress
+    || deployment?.metadata?.ec2PublicIp
+    || deployment?.metadata?.publicIp
+    || 'Pending';
   const ec2PrivateIp = infrastructure?.ec2?.privateIp || deployment?.metadata?.ec2PrivateIp || 'Pending';
   const containerPort = infrastructure?.container?.port || deployment?.metadata?.containerPort || 80;
   const containerName = infrastructure?.container?.name || deployment?.metadata?.containerName || infrastructure?.aci?.containerName || 'Pending';
@@ -285,7 +319,13 @@ export default function DeploymentDetailPage() {
     const socket = io(socketUrl, { autoConnect: true });
     const deploymentRoom = `deployment:${id}`;
 
+    const seenLogKeys = new Set<string>();
+
     const appendLog = (entry: DeploymentLog) => {
+      const dedupeKey = `${entry.timestamp || ''}:${entry.message || ''}:${entry.level || ''}`;
+      if (seenLogKeys.has(dedupeKey)) return;
+      seenLogKeys.add(dedupeKey);
+
       setLogs((prev) => {
         const next = [...prev, entry];
         return next.sort((a, b) => {
@@ -307,32 +347,17 @@ export default function DeploymentDetailPage() {
       });
     };
 
-    const onBuildLog = (data: { text?: string; type?: string; timestamp?: string }) => {
-      if (!data.text) return;
-      appendLog({
-        timestamp: data.timestamp || new Date().toISOString(),
-        source: 'live',
-        level: data.type || 'info',
-        message: data.text,
-      });
-    };
-
     socket.on('connect', () => {
       socket.emit('join-deployment', deploymentRoom);
-      if (deployment?.repositoryName) {
-        socket.emit('join-deployment', deployment.repositoryName);
-      }
     });
 
     socket.on('deployment-log', onDeploymentLog);
-    socket.on('build-log', onBuildLog);
 
     return () => {
       socket.off('deployment-log', onDeploymentLog);
-      socket.off('build-log', onBuildLog);
       socket.disconnect();
     };
-  }, [id, deployment?.repositoryName]);
+  }, [id]);
 
   const currentStep = useMemo(() => {
     if (!deployment) return 0;
@@ -643,7 +668,7 @@ export default function DeploymentDetailPage() {
                       { label: 'Container name', value: containerName },
                       { label: 'Container port', value: containerPort },
                       { label: 'Instance type', value: infrastructure?.ec2?.instanceType || metadata?.target?.instanceType || 'Pending' },
-                      { label: 'Public IP', value: ec2PublicIp },
+                      { label: 'Public IP', value: deploymentPublicIp },
                       { label: 'Private IP', value: ec2PrivateIp },
                       { label: 'ECR repository', value: ecrRepository },
                       { label: 'ECR repository URI', value: ecrRepositoryUri },

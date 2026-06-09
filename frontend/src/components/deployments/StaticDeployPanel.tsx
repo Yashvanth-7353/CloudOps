@@ -42,7 +42,10 @@ export default function StaticDeployPanel({
   const [isDetecting, setIsDetecting] = useState(false);
   const [buildCommand, setBuildCommand] = useState('npm run build');
   const [outputDirectory, setOutputDirectory] = useState('dist');
-  const [envVars, setEnvVars] = useState<EnvVar[]>([{ id: 1, key: 'NODE_ENV', value: 'production' }]);
+  const [envVars, setEnvVars] = useState<EnvVar[]>([
+    { id: 1, key: 'NODE_ENV', value: 'production' },
+    { id: 2, key: 'VITE_API_URL', value: import.meta.env.VITE_API_URL || 'http://localhost:5000' },
+  ]);
 
   const applyDetection = useCallback((result: FrameworkDetection) => {
     setDetection(result);
@@ -64,6 +67,13 @@ export default function StaticDeployPanel({
     addLog(`Detecting framework in ${root === './' ? 'root' : root}...`, 'system');
     try {
       const result = await deploymentService.detectFramework(clonePath, root);
+      if (result.deployType === 'container' || result.preset === 'backend-api') {
+        addLog(
+          `${result.displayName} is a backend API. Use "Backend API" deployment (npm install + npm start), not S3 static hosting.`,
+          'error'
+        );
+        return;
+      }
       applyDetection(result);
       addLog(`Detected ${result.displayName} — static deploy ready.`, 'success');
       setStep('s3-framework');

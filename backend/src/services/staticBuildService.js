@@ -8,7 +8,8 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const dns = require('dns').promises;
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { maskSecrets } = require('../utils/logSanitizer');
 
 class StaticBuildService {
   constructor() {
@@ -106,8 +107,285 @@ class StaticBuildService {
     };
   }
 
-  getBuildEnv(environmentVariables = {}) {
-    return { ...environmentVariables };
+  getBackendApiUrl() {
+    return process.env.BACKEND_PUBLIC_URL
+      || process.env.API_PUBLIC_URL
+      || `http://localhost:${process.env.PORT || 5000}`;
+  }
+
+  getBuildEnv(environmentVariables = {}, siteSlug = null) {
+    const backendApiUrl = this.getBackendApiUrl();
+    const env = {
+      ...environmentVariables,
+      VITE_API_URL: environmentVariables.VITE_API_URL || backendApiUrl,
+      REACT_APP_API_URL: environmentVariables.REACT_APP_API_URL || backendApiUrl,
+    };
+
+    if (siteSlug) {
+      const normalizedBase = `/${siteSlug.replace(/^\/+|\/+$/g, '')}/`;
+      env.VITE_BASE = normalizedBase;
+    }
+
+    return env;
+  }
+
+  getStaticHostRuntimeScript(apiBaseUrl) {
+    const normalizedApiBase = (apiBaseUrl || '').replace(/\/+$/g, '');
+    if (!normalizedApiBase) return '';
+
+    return `<script data-cloudops-static-host="true">
+      (function () {
+        var apiBase = ${JSON.stringify(normalizedApiBase)};
+        var shouldRewrite = function (url) {
+          return typeof url === 'string' && /^\\/api(?:\\/|$)/.test(url);
+        };
+        var rewrite = function (url) {
+          return apiBase + url;
+        };
+
+        window.__CLOUDOPS_API_BASE__ = apiBase;
+
+        if (window.fetch) {
+          var nativeFetch = window.fetch.bind(window);
+          window.fetch = function (input, init) {
+            if (shouldRewrite(input)) {
+              return nativeFetch(rewrite(input), init);
+            }
+
+            if (window.Request && input instanceof Request) {
+              var parsed = new URL(input.url, window.location.origin);
+              var relativeUrl = parsed.pathname + parsed.search + parsed.hash;
+              if (shouldRewrite(relativeUrl)) {
+                return nativeFetch(new Request(rewrite(relativeUrl), input), init);
+              }
+            }
+
+            return nativeFetch(input, init);
+          };
+        }
+
+        if (window.XMLHttpRequest) {
+          var nativeOpen = XMLHttpRequest.prototype.open;
+          XMLHttpRequest.prototype.open = function (method, url) {
+            if (shouldRewrite(url)) {
+              arguments[1] = rewrite(url);
+            }
+            return nativeOpen.apply(this, arguments);
+          };
+        }
+      })();
+    </script>`;
+  }
+
+  sanitizeIndexHtml(html, basePath = '/', apiBaseUrl = this.getBackendApiUrl()) {
+    let output = html;
+
+    output = output.replace(
+      /<link[^>]+href=["'](?:[^"']*\/)?src\/styles\.css["'][^>]*>\s*/gi,
+      ''
+    );
+
+    const normalizedBase = basePath.endsWith('/') ? basePath : `${basePath}/`;
+    if (!/<base\s/i.test(output)) {
+      output = output.replace(/<head([^>]*)>/i, `<head$1>\n    <base href="${normalizedBase}">`);
+    } else {
+      output = output.replace(/<base[^>]*href=["'][^"']*["'][^>]*>/i, `<base href="${normalizedBase}">`);
+    }
+
+    if (!/data-cloudops-static-host=["']true["']/i.test(output)) {
+      const runtimeScript = this.getStaticHostRuntimeScript(apiBaseUrl);
+      if (runtimeScript) {
+        output = output.replace(/<head([^>]*)>/i, `<head$1>\n    ${runtimeScript}`);
+      }
+    }
+
+    return output;
+  }
+
+  async listSourceFiles(dir, files = []) {
+    const ignoredDirs = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'coverage']);
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (ignoredDirs.has(entry.name)) continue;
+
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await this.listSourceFiles(entryPath, files);
+        continue;
+      }
+
+      if (/\.(?:js|jsx|ts|tsx)$/.test(entry.name)) {
+        files.push(entryPath);
+      }
+    }
+
+    return files;
+  }
+
+  async prepareReactRouterForStaticHosting(projectPath, onLog = () => {}) {
+    try {
+      const packageJsonPath = path.join(projectPath, 'package.json');
+      const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf8'));
+      const allDeps = {
+        ...(packageJson.dependencies || {}),
+        ...(packageJson.devDependencies || {}),
+      };
+
+      if (!allDeps['react-router-dom']) {
+        return;
+      }
+
+      const sourceFiles = await this.listSourceFiles(projectPath);
+      let patchedFiles = 0;
+
+      for (const filePath of sourceFiles) {
+        const content = await fs.readFile(filePath, 'utf8');
+        if (
+          !content.includes('BrowserRouter')
+          || content.includes('HashRouter')
+          || !/from\s+['"]react-router-dom['"]/.test(content)
+        ) {
+          continue;
+        }
+
+        const updated = content.replace(/\bBrowserRouter\b/g, 'HashRouter');
+        if (updated !== content) {
+          await fs.writeFile(filePath, updated, 'utf8');
+          patchedFiles += 1;
+        }
+      }
+
+      if (patchedFiles > 0) {
+        onLog(
+          `Adjusted ${patchedFiles} React Router file${patchedFiles === 1 ? '' : 's'} for S3 subfolder hosting.`,
+          'info'
+        );
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        onLog(`React Router static-hosting preparation skipped: ${error.message}`, 'warn');
+      }
+    }
+  }
+
+  async prepareViteBuildScriptForStaticHosting(projectPath, onLog = () => {}) {
+    try {
+      const packageJsonPath = path.join(projectPath, 'package.json');
+      const rawPackageJson = await fs.readFile(packageJsonPath, 'utf8');
+      const packageJson = JSON.parse(rawPackageJson.replace(/^\uFEFF/, ''));
+      const buildScript = packageJson.scripts?.build;
+
+      if (typeof buildScript !== 'string' || !/\bvite\s+build\b/.test(buildScript)) {
+        return;
+      }
+
+      const viteOnlyScript = buildScript
+        .replace(/^\s*tsc(?:\s+-b)?\s*&&\s*/i, '')
+        .trim();
+
+      if (viteOnlyScript === buildScript || !/^vite\s+build\b/.test(viteOnlyScript)) {
+        return;
+      }
+
+      packageJson.scripts.build = viteOnlyScript;
+      await fs.writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
+      onLog(
+        `Adjusted Vite build script for static hosting: "${buildScript}" -> "${viteOnlyScript}".`,
+        'info'
+      );
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        onLog(`Vite build script preparation skipped: ${error.message}`, 'warn');
+      }
+    }
+  }
+
+  async validateS3Deployment(bucket, prefix, onLog = () => {}) {
+    const normalizedPrefix = prefix ? `${prefix.replace(/^\/+|\/+$/g, '')}/` : '';
+    const requiredKeys = [`${normalizedPrefix}index.html`];
+
+    const listResult = await this.s3Client.send(new ListObjectsV2Command({
+      Bucket: bucket,
+      Prefix: normalizedPrefix,
+      MaxKeys: 200,
+    }));
+
+    const keys = (listResult.Contents || []).map((item) => item.Key).filter(Boolean);
+    if (keys.length === 0) {
+      throw new Error(`S3 validation failed: no objects found under prefix "${normalizedPrefix}"`);
+    }
+
+    for (const requiredKey of requiredKeys) {
+      if (!keys.includes(requiredKey)) {
+        throw new Error(`S3 validation failed: missing required object "${requiredKey}"`);
+      }
+    }
+
+    const assetKeys = keys.filter((key) => key.includes('/assets/'));
+    if (assetKeys.length === 0) {
+      onLog('Warning: no /assets/ directory found in deployment output.', 'warn');
+    }
+
+    const probeKeys = [
+      ...requiredKeys,
+      ...assetKeys.filter((key) => /\.(js|css|png|jpg|jpeg|svg|webp|ico)$/i.test(key)).slice(0, 6),
+    ];
+
+    for (const key of probeKeys) {
+      try {
+        const head = await this.s3Client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+        if (!head.ContentType) {
+          onLog(`Warning: missing Content-Type for ${key}`, 'warn');
+        }
+      } catch (error) {
+        throw new Error(`S3 validation failed: unable to read "${key}" (${error.message})`);
+      }
+    }
+
+    const indexHtml = await this.readS3ObjectAsText(bucket, `${normalizedPrefix}index.html`);
+    const referencedAssetKeys = this.extractIndexAssetKeys(indexHtml, normalizedPrefix);
+    for (const key of referencedAssetKeys) {
+      if (!keys.includes(key)) {
+        throw new Error(`S3 validation failed: index.html references missing asset "${key}"`);
+      }
+    }
+
+    onLog('S3 deployment validation passed (index.html and assets reachable).', 'success');
+  }
+
+  async readS3ObjectAsText(bucket, key) {
+    const result = await this.s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    return result.Body.transformToString();
+  }
+
+  extractIndexAssetKeys(html, normalizedPrefix = '') {
+    const refs = new Set();
+    const prefixWithoutTrailingSlash = normalizedPrefix.replace(/\/$/, '');
+    const attrPattern = /\b(?:src|href)=["']([^"']+)["']/gi;
+    let match;
+
+    while ((match = attrPattern.exec(html)) !== null) {
+      const rawRef = match[1];
+      if (!rawRef || /^(?:https?:)?\/\//i.test(rawRef) || rawRef.startsWith('data:') || rawRef.startsWith('#')) {
+        continue;
+      }
+
+      const cleanRef = rawRef.split(/[?#]/)[0].replace(/^\/+/, '');
+      if (!cleanRef || cleanRef === 'index.html') {
+        continue;
+      }
+
+      if (normalizedPrefix && cleanRef.startsWith(normalizedPrefix)) {
+        refs.add(cleanRef);
+      } else if (prefixWithoutTrailingSlash && cleanRef.startsWith(`${prefixWithoutTrailingSlash}/`)) {
+        refs.add(cleanRef);
+      } else {
+        refs.add(`${normalizedPrefix}${cleanRef}`);
+      }
+    }
+
+    return [...refs].filter((key) => !key.endsWith('/'));
   }
 
   async detectPackageManager(projectPath) {
@@ -164,17 +442,51 @@ class StaticBuildService {
     return { cmd: 'npm', args: ['run', 'build'] };
   }
 
-  async buildProject({ projectPath, buildCommand, environmentVariables = {}, onLog = () => {} }) {
+  async buildProject({
+    projectPath,
+    buildCommand,
+    environmentVariables = {},
+    siteSlug = null,
+    onLog = () => {},
+  }) {
+    const backendNode = await require('./frameworkDetector').isBackendNodeProject(projectPath);
+    if (backendNode.isBackend) {
+      throw new Error(
+        'This repository is a Node.js backend API, not a static frontend. '
+        + 'Use Backend API deployment (npm install + npm start) instead of S3 static hosting.'
+      );
+    }
+
+    await this.prepareReactRouterForStaticHosting(projectPath, onLog);
+    await this.prepareViteBuildScriptForStaticHosting(projectPath, onLog);
+
+    const buildEnv = this.getBuildEnv(environmentVariables, siteSlug);
+    if (siteSlug && buildEnv.VITE_BASE) {
+      onLog(`Setting VITE_BASE=${buildEnv.VITE_BASE}`, 'info');
+    }
+    if (buildEnv.VITE_API_URL) {
+      onLog(`Setting VITE_API_URL=${buildEnv.VITE_API_URL}`, 'info');
+    }
+
     onLog('Detecting package manager...', 'system');
     const { cmd, installArgs } = await this.detectPackageManager(projectPath);
 
     onLog(`Installing dependencies (${cmd})...`, 'system');
-    await this.runCommand(cmd, installArgs, projectPath, this.getInstallEnv(environmentVariables), onLog);
+    await this.runCommand(cmd, installArgs, projectPath, this.getInstallEnv(environmentVariables), (line, level) => {
+      onLog(maskSecrets(line), level);
+    });
+
+    if (!buildCommand || buildCommand.includes('No build needed')) {
+      onLog('No frontend build step required.', 'info');
+      return;
+    }
 
     const { cmd: buildCmd, args: buildArgs } = this.resolveBuildInvocation(buildCommand, cmd);
     const buildLabel = `${buildCmd} ${buildArgs.join(' ')}`;
     onLog(`Running build: ${buildLabel}`, 'system');
-    await this.runCommand(buildCmd, buildArgs, projectPath, this.getBuildEnv(environmentVariables), onLog);
+    await this.runCommand(buildCmd, buildArgs, projectPath, buildEnv, (line, level) => {
+      onLog(maskSecrets(line), level);
+    });
 
     onLog('Build completed successfully.', 'success');
   }
@@ -222,6 +534,7 @@ class StaticBuildService {
     }
 
     await this.uploadDirectoryToS3(outputPath, bucket, prefix, onLog);
+    await this.validateS3Deployment(bucket, prefix, onLog);
 
     const restUrl = this.getS3PublicUrl(bucket, prefix);
     const websiteUrl = this.getS3WebsiteUrl(bucket, prefix);
@@ -250,10 +563,16 @@ class StaticBuildService {
       try {
         if (entry.name && entry.name.toLowerCase() === 'index.html') {
           const text = body.toString('utf8');
-          const rewritten = text.replace(/(src|href)=("|')\/+/g, '$1=$2./');
+          const basePath = prefix ? `/${prefix.replace(/^\/+|\/+$/g, '')}/` : '/';
+          const basePrefix = basePath.replace(/\/$/, '');
+          const normalizedPaths = text.replace(
+            /\b(src|href)=("|')\/(?!\/)(?!api(?:\/|$))/g,
+            `$1=$2${basePrefix}/`
+          );
+          const rewritten = this.sanitizeIndexHtml(normalizedPaths, basePath);
           if (rewritten !== text) {
             uploadBody = Buffer.from(rewritten, 'utf8');
-            onLog(`Rewrote absolute paths in ${key} to relative paths`, 'info');
+            onLog(`Normalized index.html asset paths for base "${basePath}"`, 'info');
           }
         }
       } catch (err) {

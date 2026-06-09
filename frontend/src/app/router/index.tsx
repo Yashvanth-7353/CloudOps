@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Routes as RouterRoutes, Route, useLocation } from 'react-router-dom';
+import { Routes as RouterRoutes, Route, useLocation, Navigate } from 'react-router-dom';
 import ProtectedRoutes from './protected-routes';
 import { lazy, Suspense } from 'react';
 import {
@@ -85,15 +85,7 @@ function Routes() {
 
             <Route path="/docs" element={<DocsPage />} />
 
-            <Route
-              path="*"
-              element={
-                <div className="page-shell page-shell--wide text-center">
-                  <h1 className="font-display text-4xl font-bold text-foreground">404</h1>
-                  <p className="mt-3 text-muted-foreground">Page not found</p>
-                </div>
-              }
-            />
+            <Route path="*" element={<Navigate replace to="/" />} />
           </RouterRoutes>
         </Suspense>
       </motion.div>

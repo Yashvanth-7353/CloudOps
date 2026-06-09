@@ -109,6 +109,6 @@ export const generateEndpoint = (template: string, params: Record<string, string
  * Check if endpoint requires authentication
  */
 export const isProtectedEndpoint = (endpoint: string): boolean => {
-  const publicEndpoints = [ENDPOINTS.AUTH.LOGIN, ENDPOINTS.AUTH.GITHUB, ENDPOINTS.HEALTH.CHECK];
+  const publicEndpoints: string[] = [ENDPOINTS.AUTH.LOGIN, ENDPOINTS.AUTH.GITHUB, ENDPOINTS.HEALTH.CHECK];
   return !publicEndpoints.includes(endpoint);
 };

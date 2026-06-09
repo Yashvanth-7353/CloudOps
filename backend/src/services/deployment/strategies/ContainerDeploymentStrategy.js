@@ -1,5 +1,4 @@
-const { runAzureDeployment } = require('../../azureDeployService');
-const Deployment = require('../../../models/Deployment');
+const deploymentEngine = require('../../deploymentEngineService');
 const { getMappingForApplicationType } = require('../../../config/deploymentMapping');
 
 class ContainerDeploymentStrategy {
@@ -7,38 +6,46 @@ class ContainerDeploymentStrategy {
     const mapping = getMappingForApplicationType('backend-api');
     const {
       userId,
+      projectId,
       repositoryUrl,
       repositoryName,
+      repositoryOwner,
       applicationName,
       applicationType = 'backend-api',
-      socketId,
+      branch = 'main',
+      environmentVariables = {},
+      rootDirectory = './',
     } = input;
 
-    const appName = (applicationName || repositoryName || 'app')
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, '-')
-      .slice(0, 32);
-
-    // Azure service creates its own Deployment record
-    runAzureDeployment({
-      repoUrl: repositoryUrl,
-      appName,
-      socketId: socketId || null,
-      io,
+    const result = await deploymentEngine.startDeployment({
+      projectId,
       userId: String(userId || 'anonymous'),
+      repositoryUrl,
+      repositoryName,
+      repositoryOwner,
+      branch,
+      environmentVariables,
       applicationType,
+      applicationName: applicationName || repositoryName,
       deploymentType: mapping.deploymentType,
       provider: mapping.provider,
-      applicationName: applicationName || repositoryName,
       estimatedCostMonthly: mapping.estimatedCostMonthlyUsd,
       estimatedDeployMinutes: mapping.estimatedDeployMinutes,
-    });
+      target: { type: 'local' },
+      triggeredBy: 'manual',
+      metadata: {
+        rootDirectory,
+        userFacingSummary: mapping.userFacingSummary,
+        hideInfrastructure: true,
+        runtime: 'nodejs',
+      },
+    }, io);
 
     return {
       success: true,
-      message: 'Backend API deployment started',
-      appName,
-      status: 'deploying',
+      message: 'Backend API deployment started (npm install + npm start via container)',
+      deploymentId: result.deploymentId,
+      status: result.status || 'queued',
     };
   }
 }

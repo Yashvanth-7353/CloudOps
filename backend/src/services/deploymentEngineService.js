@@ -10,8 +10,11 @@ const Project = require('../models/Project');
 const dockerService = require('./dockerService');
 const frameworkDetector = require('./frameworkDetector');
 const gitService = require('./gitService');
+const dockerfileGenerator = require('./dockerfileGenerator');
 const awsDeploymentEngine = require('./awsDeploymentEngineService');
 const ec2Service = require('./aws/ec2Service');
+const { pushDeploymentLog } = require('../utils/deploymentPersistence');
+const { maskSecrets, sanitizeData } = require('../utils/logSanitizer');
 
 class DeploymentEngineService {
   constructor() {
@@ -80,6 +83,10 @@ class DeploymentEngineService {
       ...currentInfrastructure,
       ...patch,
       target: patch.target || currentInfrastructure.target || null,
+      s3: {
+        ...(currentInfrastructure.s3 || {}),
+        ...(patch.s3 || {}),
+      },
       ecr: {
         ...(currentInfrastructure.ecr || {}),
         ...(patch.ecr || {}),
@@ -87,6 +94,14 @@ class DeploymentEngineService {
       ec2: {
         ...(currentInfrastructure.ec2 || {}),
         ...(patch.ec2 || {}),
+      },
+      acr: {
+        ...(currentInfrastructure.acr || {}),
+        ...(patch.acr || {}),
+      },
+      aci: {
+        ...(currentInfrastructure.aci || {}),
+        ...(patch.aci || {}),
       },
       container: {
         ...(currentInfrastructure.container || {}),
@@ -109,42 +124,48 @@ class DeploymentEngineService {
   }
 
   emitLog(io, deployment, source, level, message, data = {}) {
-    deployment.addLog(source, level, message, data);
-
+    const sanitizedMessage = maskSecrets(message);
+    const sanitizedData = sanitizeData(data);
     const room = this.toDeploymentRoom(deployment);
     const payload = {
       deploymentId: deployment._id.toString(),
       source,
       level,
-      message,
-      data,
+      message: sanitizedMessage,
+      data: sanitizedData,
       timestamp: new Date().toISOString(),
       status: deployment.status,
       phase: deployment.phase,
     };
 
-    // Print to console with level indicators
+    pushDeploymentLog(deployment._id, {
+      source,
+      level,
+      message: sanitizedMessage,
+      data: sanitizedData,
+      deploymentService: deployment.deploymentService,
+    }).catch((err) => {
+      console.error('Failed to persist deployment log:', err.message);
+    });
+
     const timestamp = new Date().toISOString();
     const prefix = `[${timestamp}] [${source.toUpperCase()}] [${level.toUpperCase()}]`;
-    const logMessage = `${prefix} ${message}`;
-    
+    const logMessage = `${prefix} ${sanitizedMessage}`;
+
     if (level === 'error') {
-      console.error(`❌ ${logMessage}`, data);
+      console.error(`❌ ${logMessage}`);
     } else if (level === 'warn') {
-      console.warn(`⚠️  ${logMessage}`, data);
+      console.warn(`⚠️  ${logMessage}`);
     } else if (level === 'success') {
-      console.log(`✅ ${logMessage}`, data);
+      console.log(`✅ ${logMessage}`);
     } else if (level === 'debug') {
-      console.log(`🔍 ${logMessage}`, data);
+      console.log(`🔍 ${logMessage}`);
     } else {
-      console.log(`ℹ️  ${logMessage}`, data);
+      console.log(`ℹ️  ${logMessage}`);
     }
 
     if (io && typeof io.to === 'function') {
       io.to(room).emit('deployment-log', payload);
-      if (deployment.repositoryName) {
-        io.to(deployment.repositoryName).emit('deployment-log', payload);
-      }
     }
   }
 
@@ -288,8 +309,11 @@ class DeploymentEngineService {
         targetType: carryoverInfrastructure.targetType || target.type || 'local',
         region: carryoverInfrastructure.region || target.awsRegion || process.env.AWS_REGION || null,
         target: carryoverInfrastructure.target || target,
+        s3: carryoverInfrastructure.s3 || {},
         ecr: carryoverInfrastructure.ecr || {},
         ec2: carryoverInfrastructure.ec2 || {},
+        acr: carryoverInfrastructure.acr || {},
+        aci: carryoverInfrastructure.aci || {},
         container: carryoverInfrastructure.container || {},
         deployState: 'queued',
       },
@@ -309,7 +333,6 @@ class DeploymentEngineService {
       branch,
       target: target.type,
     });
-    await deployment.save();
 
     this.queue.push({ deploymentId: deployment._id.toString(), io });
     this.processQueue().catch((error) => {
@@ -389,12 +412,23 @@ class DeploymentEngineService {
   }
 
   async detectAndGenerate(deployment, buildDir, io) {
+    const rootDirectory = deployment.metadata?.rootDirectory || './';
+    const normalizedRoot = rootDirectory && rootDirectory !== './'
+      ? rootDirectory.replace(/^\.\//, '').replace(/^\/+/, '')
+      : '';
+    const appDir = normalizedRoot ? path.join(buildDir, normalizedRoot) : buildDir;
+
+    const relativeAppDir = path.relative(buildDir, appDir);
+    if (normalizedRoot && (relativeAppDir.startsWith('..') || path.isAbsolute(relativeAppDir))) {
+      throw new Error('Invalid root directory for deployment.');
+    }
+
     // Detect framework for metadata
     deployment.updateStatus('detecting', 'framework_detection');
     await this.saveDeployment(deployment);
     this.emitLog(io, deployment, 'framework', 'info', 'Detecting framework');
 
-    const detected = await frameworkDetector.detectFramework(buildDir);
+    const detected = await frameworkDetector.detectFramework(appDir);
     deployment.framework = detected.framework;
     deployment.frameworkVersion = detected.version;
     deployment.frameworkDetails = detected.details;
@@ -407,24 +441,33 @@ class DeploymentEngineService {
     });
 
     // Check if Dockerfile exists in the cloned repository
-    const dockerfilePath = path.join(buildDir, 'Dockerfile');
-    const dockerfileExists = fsSyncModule.existsSync(dockerfilePath);
+    const dockerfilePath = path.join(appDir, 'Dockerfile');
+    let dockerfileExists = fsSyncModule.existsSync(dockerfilePath);
 
     if (!dockerfileExists) {
-      const errorMsg = 'Dockerfile not found in repository. Please commit a Dockerfile to your repository root and try again.';
-      this.emitLog(io, deployment, 'docker', 'error', errorMsg);
-      throw new Error(errorMsg);
+      const generatedDockerfile = dockerfileGenerator.generateDockerfile(detected.framework, {
+        port: detected.port || 3000,
+        buildCommand: detected.buildCommand,
+        startCommand: detected.startCommand,
+      });
+      await dockerfileGenerator.saveDockerfile(generatedDockerfile, dockerfilePath);
+      dockerfileExists = true;
+      this.emitLog(io, deployment, 'docker', 'info', 'Generated Dockerfile for detected backend', {
+        dockerfilePath,
+      });
     }
 
-    this.emitLog(io, deployment, 'docker', 'info', 'Found Dockerfile in repository', {
-      dockerfilePath,
-    });
+    if (dockerfileExists) {
+      this.emitLog(io, deployment, 'docker', 'info', 'Using Dockerfile', { dockerfilePath });
+    }
 
     const dockerfileContent = await fs.readFile(dockerfilePath, 'utf8');
     deployment.dockerfile = dockerfileContent;
 
     deployment.metadata = deployment.metadata || {};
     deployment.metadata.dockerfilePath = dockerfilePath;
+    deployment.metadata.buildContext = appDir;
+    deployment.metadata.rootDirectory = rootDirectory || './';
     deployment.metadata.containerPort = detected.port || 3000;
     deployment.metadata.framework = detected.framework;
     deployment.metadata.frameworkVersion = detected.version;
@@ -438,6 +481,8 @@ class DeploymentEngineService {
       containerPort: detected.port || 3000,
       dockerfileContent,
       dockerfilePath,
+      buildContext: appDir,
+      rootDirectory: rootDirectory || './',
     };
   }
 
@@ -534,12 +579,15 @@ class DeploymentEngineService {
         contextPath: buildDir,
       });
 
-      let buildContext = buildDir;
+      let buildContext = prepResult.buildContext || buildDir;
       let remoteWorkspace = null;
 
       if (target.type === 'ssh') {
         const remote = await this.prepareRemoteWorkspace(deployment, buildDir, target);
-        buildContext = remote.remoteWorkspace;
+        const relativeContext = path.relative(buildDir, buildContext);
+        buildContext = relativeContext && relativeContext !== '.'
+          ? `${remote.remoteWorkspace}/${relativeContext.split(path.sep).join('/')}`
+          : remote.remoteWorkspace;
         remoteWorkspace = remote.remoteWorkspace;
         this.syncInfrastructure(deployment, {
           provider: 'ssh',
@@ -677,13 +725,14 @@ class DeploymentEngineService {
           ecrUri: ecrResult.imageUri,
         });
 
-        // Emit completion event
         if (io && typeof io.to === 'function') {
-          io.to(deployment.repositoryName).emit('deployment-complete', {
+          io.to(this.toDeploymentRoom(deployment)).emit('deployment-complete', {
             deploymentId: deployment._id.toString(),
             status: 'success',
             liveUrl: ec2Result.liveUrl,
             instanceId: ec2Result.instanceId,
+            publicIp: ec2Result.publicIp,
+            privateIp: ec2Result.privateIp,
           });
         }
 
@@ -785,17 +834,18 @@ class DeploymentEngineService {
         containerPort,
       });
 
-      // Emit deployment-complete event via Socket.io
-      io.to(deployment.repositoryName).emit('deployment-complete', {
-        success: true,
-        deploymentId: deployment._id.toString(),
-        status: deployment.status,
-        liveUrl,
-        imageName,
-        containerName,
-        hostPort,
-        containerPort,
-      });
+      if (io && typeof io.to === 'function') {
+        io.to(this.toDeploymentRoom(deployment)).emit('deployment-complete', {
+          success: true,
+          deploymentId: deployment._id.toString(),
+          status: deployment.status,
+          liveUrl,
+          imageName,
+          containerName,
+          hostPort,
+          containerPort,
+        });
+      }
 
       return {
         success: true,

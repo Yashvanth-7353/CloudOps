@@ -20,6 +20,7 @@ import {
   APPLICATION_TYPE_DESCRIPTIONS,
   APPLICATION_TYPE_LABELS,
 } from '@/lib/application-types';
+import { API_BASE_URL } from '@/lib/constants';
 import type { Socket } from 'socket.io-client';
 
 type EnvVar = { id: number; key: string; value: string };
@@ -67,6 +68,7 @@ export default function ApplicationDeployPanel({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [envVars, setEnvVars] = useState<EnvVar[]>([
     { id: 1, key: 'NODE_ENV', value: 'production' },
+    { id: 2, key: 'VITE_API_URL', value: API_BASE_URL },
   ]);
   const [isDeploying, setIsDeploying] = useState(false);
 
@@ -87,9 +89,7 @@ export default function ApplicationDeployPanel({
     onDeploying();
     addLog(`Deploying ${selectedLabel}...`, 'system');
 
-    if (socketRef.current && repositoryName) {
-      socketRef.current.emit('join-deployment', repositoryName);
-    }
+    // Room join happens after deploymentId is returned from the API.
 
     const environmentVariables = envVars
       .filter((v) => v.key.trim())
@@ -102,12 +102,16 @@ export default function ApplicationDeployPanel({
       status?: string;
       publicUrl?: string;
       liveUrl?: string;
+      publicIp?: string;
       deploymentId?: string;
       error?: string;
     }) => {
       const url = data.publicUrl || data.liveUrl;
       if (data.status === 'success' && url) {
         addLog(`Live at ${url}`, 'success');
+        if (data.publicIp) {
+          addLog(`Public IP: ${data.publicIp}`, 'success');
+        }
         onComplete(url, data.deploymentId);
       } else if (data.status === 'failed') {
         addLog(data.error || 'Deployment failed', 'error');
@@ -156,6 +160,7 @@ export default function ApplicationDeployPanel({
       addLog('Deployment queued successfully', 'success');
       if (result.deploymentId) {
         addLog(`Deployment ID: ${result.deploymentId}`, 'info');
+        socketRef.current?.emit('join-deployment', `deployment:${result.deploymentId}`);
         onDeploymentStarted?.(result.deploymentId);
       }
 

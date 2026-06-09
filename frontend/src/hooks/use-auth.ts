@@ -13,7 +13,7 @@ export const useAuthHook = () => {
   const loginWithGitHub = useCallback(async (code: string, state: string) => {
     try {
       const response = await authService.githubLogin(code, state);
-      const { token, user } = response.data;
+      const { token, user } = response.data as { token: string; user?: any };
       localStorage.setItem('cloudops_auth_token', token);
       await auth.login({ token, user });
     } catch (error) {

@@ -29,8 +29,27 @@ app.set('io', io);
 io.on('connection', (socket) => {
     console.log(`🔌 Client connected to log stream: ${socket.id}`);
     
-    socket.on('join-deployment', (roomName) => {
+    socket.on('join-deployment', (payload) => {
+        const requestedRoom = typeof payload === 'object' && payload !== null
+            ? (payload.roomName || payload.room || payload.deploymentId)
+            : payload;
+
+        if (!requestedRoom || typeof requestedRoom !== 'string') return;
+
+        const roomName = requestedRoom.startsWith('deployment:')
+            ? requestedRoom
+            : `deployment:${requestedRoom}`;
+
+        if (!socket.data.joinedDeploymentRooms) {
+            socket.data.joinedDeploymentRooms = new Set();
+        }
+
+        if (socket.data.joinedDeploymentRooms.has(roomName)) {
+            return;
+        }
+
         socket.join(roomName);
+        socket.data.joinedDeploymentRooms.add(roomName);
         console.log(`Client joined deployment room: ${roomName}`);
     });
 

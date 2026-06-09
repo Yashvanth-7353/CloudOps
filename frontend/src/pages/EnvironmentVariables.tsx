@@ -12,6 +12,8 @@ type EnvItem = {
 };
 
 type DeploymentRecord = {
+  _id?: string;
+  projectId?: string | null;
   repositoryName?: string;
   repositoryUrl?: string;
   environmentVariables?: EnvItem[];
@@ -82,7 +84,8 @@ export default function EnvironmentVariablesPage() {
 
     try {
       const response = await deploymentService.getAll();
-      const raw = response?.data?.data || response?.data?.deployments || response?.data || [];
+      const responseData = response?.data as any;
+      const raw = responseData?.data || responseData?.deployments || responseData || [];
       setDeployments(Array.isArray(raw) ? raw : []);
       setError(null);
     } catch (fetchError: any) {

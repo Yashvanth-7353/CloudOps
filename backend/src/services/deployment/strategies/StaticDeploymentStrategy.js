@@ -3,6 +3,8 @@ const Deployment = require('../../../models/Deployment');
 const staticBuildService = require('../../staticBuildService');
 const frameworkDetector = require('../../frameworkDetector');
 const { getMappingForApplicationType } = require('../../../config/deploymentMapping');
+const { pushDeploymentLog, updateDeploymentFields } = require('../../../utils/deploymentPersistence');
+const { maskSecrets } = require('../../../utils/logSanitizer');
 
 class StaticDeploymentStrategy {
   normalizeLevel(level) {
@@ -10,47 +12,35 @@ class StaticDeploymentStrategy {
     return 'info';
   }
 
-  emit(io, deployment, message, level = 'info', source = 'app') {
+  deploymentRoom(deployment) {
+    return `deployment:${deployment._id}`;
+  }
+
+  async emit(io, deployment, message, level = 'info', source = 'app') {
     const normalizedLevel = this.normalizeLevel(level);
     const validSource = ['system', 'git', 'framework', 'docker', 'aws', 'azure', 'acr', 'aci', 'app'].includes(source)
       ? source
       : 'app';
 
-    // Add log locally for immediate use
-    deployment.addLog(validSource, normalizedLevel, message, {}, 's3-static');
-
-    // Persist atomically using findOneAndUpdate to avoid concurrent save conflicts
-    const logEntry = {
-      timestamp: new Date(),
+    const sanitizedMessage = maskSecrets(message);
+    const logEntry = await pushDeploymentLog(deployment._id, {
       source: validSource,
       level: normalizedLevel,
-      message,
-      data: {},
+      message: sanitizedMessage,
       deploymentService: 's3-static',
-    };
-
-    Deployment.findOneAndUpdate(
-      { _id: deployment._id },
-      { $push: { logs: logEntry } },
-      { new: true }
-    ).catch((err) => {
-      console.error('Failed to persist deployment log:', err.message);
     });
 
-    const room = deployment.repositoryName;
-    const deploymentRoom = `deployment:${deployment._id}`;
     const payload = {
       deploymentId: deployment._id.toString(),
-      message,
+      message: sanitizedMessage,
       level: normalizedLevel,
-      timestamp: new Date().toISOString(),
+      timestamp: (logEntry.timestamp || new Date()).toISOString(),
       applicationType: deployment.applicationType,
     };
 
     if (io) {
+      const room = this.deploymentRoom(deployment);
       io.to(room).emit('deployment-log', payload);
-      io.to(deploymentRoom).emit('deployment-log', payload);
-      io.to(room).emit('build-log', { text: message, type: level, timestamp: payload.timestamp });
     }
   }
 
@@ -94,6 +84,12 @@ class StaticDeploymentStrategy {
         provider: mapping.provider,
         targetType: 's3-static',
         deployState: 'building',
+        s3: {},
+        ecr: {},
+        ec2: {},
+        acr: {},
+        aci: {},
+        container: {},
       },
       metadata: {
         rootDirectory,
@@ -106,7 +102,7 @@ class StaticDeploymentStrategy {
 
     setImmediate(() => {
       this.runBuild(deployment, input, io).catch((error) => {
-        console.error('Static deployment failed:', error);
+        console.error('Static deployment failed:', error.message);
       });
     });
 
@@ -132,24 +128,43 @@ class StaticDeploymentStrategy {
       ? path.join(clonePath, rootDirectory.replace(/^\.\//, ''))
       : clonePath;
 
+    const deploymentRoom = this.deploymentRoom(deployment);
+
     try {
-      this.emit(io, deployment, 'Preparing your website for deployment...', 'info', 'system');
+      await this.emit(io, deployment, 'Preparing your website for deployment...', 'info', 'system');
+
+      const backendNode = await frameworkDetector.isBackendNodeProject(projectPath);
+      if (backendNode.isBackend) {
+        throw new Error(
+          'Repository classified as Node.js backend API. '
+          + 'Deploy it as Backend API (npm install + npm start), not S3 static hosting.'
+        );
+      }
 
       const bucket = staticBuildService.getS3BucketName();
       if (!bucket) {
         throw new Error('AWS_S3_BUCKET_NAME is not configured in backend/.env');
       }
 
-      this.emit(io, deployment, `Verifying S3 access for bucket: ${bucket}...`, 'info', 'system');
+      await this.emit(io, deployment, `Verifying S3 access for bucket: ${bucket}...`, 'info', 'system');
       await staticBuildService.verifyBucketAccess(
         bucket,
         (text, type) => this.emit(io, deployment, text, type, 'aws')
       );
 
+      const siteSlug = staticBuildService.generateSiteSlug(repositoryName);
+
       const detection = await frameworkDetector.detectFramework(clonePath, {
         rootDirectory,
         mode: 'static',
       });
+
+      if (detection.deployType === 'container') {
+        throw new Error(
+          `${detection.displayName} is not a static frontend. Use Backend API deployment instead.`
+        );
+      }
+
       const finalBuildCommand = buildCommand || detection.buildCommand;
       const finalOutputDir = outputDirectory || detection.outputDirectory;
 
@@ -158,13 +173,13 @@ class StaticDeploymentStrategy {
           projectPath,
           buildCommand: finalBuildCommand,
           environmentVariables,
+          siteSlug,
           onLog: (text, type) => this.emit(io, deployment, text, type, 'app'),
         });
       } else {
-        this.emit(io, deployment, 'Publishing static files...', 'info', 'app');
+        await this.emit(io, deployment, 'Publishing static files...', 'info', 'app');
       }
 
-      const siteSlug = staticBuildService.generateSiteSlug(repositoryName);
       const publicUrl = await staticBuildService.deployStaticToS3({
         projectPath,
         outputDirectory: finalOutputDir,
@@ -172,59 +187,70 @@ class StaticDeploymentStrategy {
         skipAccessVerify: true,
         onLog: (text, type) => this.emit(io, deployment, text, type, 'aws'),
       });
+      const publicIp = await staticBuildService.resolvePublicIp(publicUrl);
 
-      deployment.publicUrl = publicUrl;
-      deployment.domainUrl = publicUrl;
-      deployment.status = 'success';
-      deployment.phase = 'complete';
-      deployment.healthStatus = 'healthy';
-      deployment.completedAt = new Date();
-      
-      // Update infrastructure with only the fields we need (avoid undefined values)
-      if (!deployment.infrastructure) {
-        deployment.infrastructure = {};
-      }
-      deployment.infrastructure.provider = deployment.infrastructure.provider || 'aws';
-      deployment.infrastructure.targetType = 's3-static';
-      deployment.infrastructure.s3 = {
-        bucket: staticBuildService.getS3BucketName(),
-        prefix: siteSlug,
-        siteSlug,
-        websiteUrl: publicUrl,
-      };
-      deployment.infrastructure.liveUrl = publicUrl;
-      deployment.infrastructure.deployState = 'live';
-      
-      deployment.markAsSuccess(publicUrl, Date.now() - deployment.startedAt.getTime());
-      this.emit(io, deployment, `Deployment complete! Live URL: ${publicUrl}`, 'success', 'system');
-      await deployment.save();
+      const totalTime = Date.now() - deployment.startedAt.getTime();
+
+      await updateDeploymentFields(deployment._id, {
+        publicUrl,
+        domainUrl: publicUrl,
+        status: 'success',
+        phase: 'complete',
+        healthStatus: 'healthy',
+        completedAt: new Date(),
+        totalTime,
+        'infrastructure.provider': 'aws',
+        'infrastructure.targetType': 's3-static',
+        'infrastructure.s3.bucket': staticBuildService.getS3BucketName(),
+        'infrastructure.s3.prefix': siteSlug,
+        'infrastructure.s3.siteSlug': siteSlug,
+        'infrastructure.s3.websiteUrl': publicUrl,
+        'infrastructure.s3.publicIp': publicIp || null,
+        'infrastructure.liveUrl': publicUrl,
+        'infrastructure.deployState': 'live',
+      });
+
+      await this.emit(io, deployment, `Deployment complete! Live URL: ${publicUrl}`, 'success', 'system');
+      await this.emit(io, deployment, `Public IP: ${publicIp || 'Unavailable'}`, 'success', 'system');
 
       const completePayload = {
         status: 'success',
         deploymentId: deployment._id.toString(),
         publicUrl,
         liveUrl: publicUrl,
+        publicIp,
         applicationType,
         deployType: 'static',
       };
 
       if (io) {
-        io.to(repositoryName).emit('build-complete', completePayload);
-        io.to(repositoryName).emit('deployment-complete', completePayload);
-        io.to(`deployment:${deployment._id}`).emit('deployment-complete', completePayload);
+        io.to(deploymentRoom).emit('build-complete', completePayload);
+        io.to(deploymentRoom).emit('deployment-complete', completePayload);
       }
 
       return {
         success: true,
         deploymentId: deployment._id.toString(),
         publicUrl,
+        publicIp,
         status: 'success',
       };
     } catch (error) {
-      this.emit(io, deployment, error.message || 'Deployment failed', 'error', 'system');
-      deployment.markAsFailed(error);
-      deployment.healthStatus = 'unhealthy';
-      await deployment.save();
+      await this.emit(io, deployment, error.message || 'Deployment failed', 'error', 'system');
+
+      await updateDeploymentFields(deployment._id, {
+        status: 'failed',
+        healthStatus: 'unhealthy',
+        completedAt: new Date(),
+        failureReason: error.message,
+        error: {
+          message: error.message,
+          code: error.code,
+          phase: 'docker_build',
+          timestamp: new Date(),
+          stack: error.stack,
+        },
+      });
 
       if (io) {
         const failPayload = {
@@ -232,9 +258,8 @@ class StaticDeploymentStrategy {
           error: error.message,
           deploymentId: deployment._id.toString(),
         };
-        io.to(repositoryName).emit('build-complete', failPayload);
-        io.to(repositoryName).emit('deployment-complete', failPayload);
-        io.to(`deployment:${deployment._id}`).emit('deployment-complete', failPayload);
+        io.to(deploymentRoom).emit('build-complete', failPayload);
+        io.to(deploymentRoom).emit('deployment-complete', failPayload);
       }
 
       throw error;

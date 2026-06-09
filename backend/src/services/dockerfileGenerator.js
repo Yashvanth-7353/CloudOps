@@ -42,72 +42,28 @@ class DockerfileGenerator {
    * Generate Node.js Dockerfile (Multi-stage build)
    */
   generateNodeDockerfile(port, buildCommand, startCommand, workdir) {
-    return `# Build stage
-FROM node:18-alpine AS builder
+    const escapedStartCommand = JSON.stringify(startCommand || 'npm start');
+    const shouldRunBuild = buildCommand && buildCommand !== 'echo "No build needed"';
+
+    return `FROM node:20-alpine
 
 WORKDIR ${workdir}
 
-# Copy package files
+RUN apk add --no-cache dumb-init
+
 COPY package*.json ./
-COPY yarn.lock* ./
-COPY pnpm-lock.yaml* ./
+RUN npm ci || npm install
 
-# Install dependencies
-RUN npm ci --only=production || npm install --only=production || yarn install --production || pnpm install --prod
-
-# Copy source code
 COPY . .
+${shouldRunBuild ? `RUN ${buildCommand}` : ''}
 
-# Build application (if needed)
-RUN npm run build 2>/dev/null || true
-
-# Runtime stage
-FROM node:18-alpine
-
-WORKDIR ${workdir}
-
-# Install dumb-init and Python for orchestrator support
-RUN apk add --no-cache dumb-init python3 py3-pip bash
-
-# Install Python dependencies from orchestrator (if available in build context)
-COPY ../azure/orchestrator/requirements.txt /tmp/requirements.txt
-RUN if [ -f /tmp/requirements.txt ]; then pip3 install --no-cache-dir -r /tmp/requirements.txt; else echo "requirements.txt not found"; fi
-
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
-
-# Copy from builder
-COPY --from=builder --chown=nodejs:nodejs ${workdir} ${workdir}
-
-# Copy orchestrator package into container
-COPY --chown=nodejs:nodejs ../azure/orchestrator /orchestrator
-
-# Set environment
 ENV NODE_ENV=production
 ENV PORT=${port}
-ENV PYTHON=python3
-ENV PYTHONPATH=/orchestrator:\$PYTHONPATH
-ENV NODE_ENV=production
-ENV PORT=${port}
-ENV PYTHON=python3
-ENV PYTHONPATH=/orchestrator:\$PYTHONPATH
 
-# Expose port
 EXPOSE ${port}
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \\
-  CMD node -e "require('http').get('http://localhost:${port}', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
-
-# Run as non-root
-USER nodejs
-
-# Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
-
-# Start application
-CMD ["npm", "start"]
+CMD ["sh", "-c", ${escapedStartCommand}]
 `;
   }
 

@@ -2,6 +2,7 @@ import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { DashboardLayout } from '@/components/layout';
 import { apiClient } from '@/services/api/interceptors';
+import { API_BASE_URL } from '@/lib/constants';
 import { githubService, GitHubRepository, ConnectedRepository } from '@/services/github-service';
 
 type UserProfile = {
@@ -182,7 +183,7 @@ export default function SettingsPage() {
                       Refresh
                     </button>
                     <a
-                      href="/api/auth/github"
+                      href={`${API_BASE_URL}/api/auth/github`}
                       className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-cyan-400"
                     >
                       Reconnect GitHub

@@ -10,6 +10,7 @@ import {
   Globe,
   CheckCircle2,
   AlertTriangle,
+  LucideIcon,
 } from 'lucide-react';
 import PipelineStage from './PipelineStage';
 import DeploymentHeader from './DeploymentHeader';
@@ -18,7 +19,7 @@ import PipelineControls from './PipelineControls';
 
 interface StageConfig {
   label: string;
-  icon: React.ComponentType;
+  icon: LucideIcon;
   status: 'pending' | 'in-progress' | 'success' | 'failed';
   timestamp?: string;
   logs?: string[];

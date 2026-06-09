@@ -3,8 +3,14 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 
 // https://vitejs.dev/config/
+const normalizeBase = (value?: string) => {
+  if (!value || value === './') return './';
+  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash : `${withLeadingSlash}/`;
+};
+
 export default defineConfig({
-  base: process.env.VITE_BASE || './',
+  base: normalizeBase(process.env.VITE_BASE),
   plugins: [react()],
   resolve: {
     alias: {

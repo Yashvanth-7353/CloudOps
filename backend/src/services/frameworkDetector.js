@@ -7,6 +7,32 @@
 const fs = require('fs').promises;
 const path = require('path');
 
+const BACKEND_RUNTIME_DEPS = [
+  'express',
+  'fastify',
+  'koa',
+  '@nestjs/core',
+  'hapi',
+  '@hapi/hapi',
+  'restify',
+  'polka',
+];
+
+const FRONTEND_RUNTIME_DEPS = [
+  'react',
+  'react-dom',
+  'vue',
+  '@angular/core',
+  'svelte',
+  '@sveltejs/kit',
+  'next',
+  'nuxt',
+  'astro',
+  'vite',
+  'react-scripts',
+  '@remix-run/react',
+];
+
 class FrameworkDetector {
   constructor() {
     this.frameworks = {
@@ -85,6 +111,38 @@ class FrameworkDetector {
     };
   }
 
+  hasBackendRuntime(deps = {}) {
+    return BACKEND_RUNTIME_DEPS.some((dep) => deps[dep]);
+  }
+
+  hasFrontendRuntime(deps = {}) {
+    return FRONTEND_RUNTIME_DEPS.some((dep) => deps[dep]);
+  }
+
+  async isBackendNodeProject(repoPath) {
+    try {
+      const pkgPath = path.join(repoPath, 'package.json');
+      const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8'));
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+      const scripts = pkg.scripts || {};
+      const hasBackendRuntime = this.hasBackendRuntime(deps);
+      const hasFrontendRuntime = this.hasFrontendRuntime(deps);
+      const hasFrontendEntry = await this.checkFramework(repoPath, ['index.html', 'src/main.jsx', 'src/main.tsx', 'src/App.jsx', 'src/App.tsx']);
+
+      if (hasBackendRuntime && (!hasFrontendRuntime || !hasFrontendEntry)) {
+        return {
+          isBackend: true,
+          startCommand: scripts.start ? 'npm start' : (scripts.dev ? 'npm run dev' : 'node index.js'),
+          hasBuildScript: Boolean(scripts.build),
+        };
+      }
+
+      return { isBackend: false };
+    } catch {
+      return { isBackend: false };
+    }
+  }
+
   async detectFrontendPreset(repoPath) {
     try {
       const pkgPath = path.join(repoPath, 'package.json');
@@ -92,6 +150,10 @@ class FrameworkDetector {
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
       const scripts = pkg.scripts || {};
       const defaultBuild = scripts.build ? 'npm run build' : 'npm run build';
+
+      if (this.hasBackendRuntime(deps) && !this.hasFrontendRuntime(deps)) {
+        return null;
+      }
 
       const presets = [
         { name: 'vite', check: () => deps.vite, output: 'dist', build: defaultBuild },
@@ -116,13 +178,13 @@ class FrameworkDetector {
         }
       }
 
-      if (scripts.build) {
+      if (scripts.build && this.hasFrontendRuntime(deps)) {
         return {
           preset: 'nodejs',
           buildCommand: scripts.build.startsWith('npm') ? scripts.build : 'npm run build',
           outputDirectory: 'dist',
           deployType: 'static',
-          displayName: 'Node.js',
+          displayName: 'Node.js Frontend',
         };
       }
 
@@ -256,6 +318,21 @@ class FrameworkDetector {
         suggestedEnvVars: [],
         rootDirectory: rootDirectory || './',
       };
+
+      const backendNode = await this.isBackendNodeProject(targetPath);
+      if (backendNode.isBackend) {
+        detected.framework = 'nodejs';
+        detected.preset = 'backend-api';
+        detected.displayName = 'Node.js API';
+        detected.buildCommand = backendNode.hasBuildScript ? 'npm run build' : null;
+        detected.startCommand = backendNode.startCommand;
+        detected.outputDirectory = null;
+        detected.deployType = 'container';
+        detected.confidence = 1;
+        detected.details = await this.getFrameworkDetails(targetPath, 'nodejs');
+        detected.suggestedEnvVars = await this.getSuggestedEnvVars(targetPath);
+        return detected;
+      }
 
       const preset = await this.detectFrontendPreset(targetPath);
       if (preset) {

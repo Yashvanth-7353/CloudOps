@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const fssync = require('fs');
 const crypto = require('crypto');
+const { sanitizeError } = require('../utils/logSanitizer');
 
 class GitService {
     buildAuthenticatedUrl(repoUrl, githubToken) {
@@ -77,7 +78,7 @@ class GitService {
             }
         }
 
-        throw lastError || new Error('Failed to clone repository');
+        throw sanitizeError(lastError || new Error('Failed to clone repository'));
 
     }
 

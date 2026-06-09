@@ -43,15 +43,25 @@ class ApplicationTypeDetector {
       const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8'));
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
       const backendDeps = ['express', 'fastify', 'koa', '@nestjs/core', 'hapi'];
-      if (backendDeps.some((d) => deps[d])) {
+      const hasBackendRuntime = backendDeps.some((d) => deps[d]);
+      const hasFrontendRuntime = deps.react || deps.vue || deps['@angular/core'] || deps.vite;
+      const hasFrontendEntry = await Promise.all([
+        this.pathExists(path.join(dirPath, 'index.html')),
+        this.pathExists(path.join(dirPath, 'src/main.jsx')),
+        this.pathExists(path.join(dirPath, 'src/main.tsx')),
+        this.pathExists(path.join(dirPath, 'src/App.jsx')),
+        this.pathExists(path.join(dirPath, 'src/App.tsx')),
+      ]).then((results) => results.some(Boolean));
+
+      if (hasBackendRuntime && (!hasFrontendRuntime || !hasFrontendEntry)) {
         return { isBackend: true, label: 'Node.js API' };
       }
-      const hasFrontendOnly = deps.react || deps.vue || deps['@angular/core'] || deps.vite;
-      const hasBuildScript = pkg.scripts?.build && !backendDeps.some((d) => deps[d]);
+      const hasFrontendOnly = hasFrontendRuntime && !hasBackendRuntime;
+      const hasBuildScript = pkg.scripts?.build && !hasBackendRuntime;
       if (hasFrontendOnly && hasBuildScript) {
         return { isBackend: false, label: null };
       }
-      if (backendDeps.some((d) => deps[d])) {
+      if (hasBackendRuntime) {
         return { isBackend: true, label: 'Node.js API' };
       }
     } catch {
@@ -62,13 +72,21 @@ class ApplicationTypeDetector {
   }
 
   async isFrontendRoot(dirPath) {
+    const backendNode = await frameworkDetector.isBackendNodeProject(dirPath);
+    if (backendNode.isBackend) {
+      return { isFrontend: false, label: null };
+    }
+
     const preset = await frameworkDetector.detectFrontendPreset(dirPath);
     if (preset) {
       return { isFrontend: true, label: preset.displayName };
     }
 
     if (await this.pathExists(path.join(dirPath, 'index.html'))) {
-      return { isFrontend: true, label: 'Static HTML' };
+      const hasPackageJson = await this.pathExists(path.join(dirPath, 'package.json'));
+      if (!hasPackageJson) {
+        return { isFrontend: true, label: 'Static HTML' };
+      }
     }
 
     return { isFrontend: false, label: null };
@@ -137,12 +155,12 @@ class ApplicationTypeDetector {
     let applicationType = 'frontend-website';
     let confidence = 0.7;
 
-    if (hasFrontend && hasBackend) {
+    if (hasBackend && !hasFrontend) {
+      applicationType = 'backend-api';
+      confidence = 0.9;
+    } else if (hasFrontend && hasBackend) {
       applicationType = 'full-stack';
       confidence = 0.9;
-    } else if (hasBackend && !hasFrontend) {
-      applicationType = 'backend-api';
-      confidence = 0.85;
     } else if (hasFrontend) {
       applicationType = 'frontend-website';
       confidence = 0.9;

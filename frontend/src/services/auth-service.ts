@@ -86,8 +86,8 @@ export const costService = {
  * Handles analytics and reporting API calls
  */
 export const analyticsService = {
-  getDashboard: () =>
-    apiClient.get(ENDPOINTS.ANALYTICS.DASHBOARD),
+  getDashboard: (params?: Record<string, any>) =>
+    apiClient.get(ENDPOINTS.ANALYTICS.DASHBOARD, { params }),
 
   getDeploymentAnalytics: (params?: Record<string, any>) =>
     apiClient.get(ENDPOINTS.ANALYTICS.DEPLOYMENTS, { params }),
