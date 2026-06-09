@@ -9,12 +9,14 @@ import {
   Filter,
   Globe2,
   GitBranch,
+  HeartPulse,
   Loader2,
   RefreshCw,
   Search,
   Server,
   Layers3,
 } from 'lucide-react';
+import { formatApplicationType, formatHealthStatus } from '@/lib/application-types';
 import { DashboardLayout } from '@/components/layout';
 import { authService, deploymentService } from '@/services/auth-service';
 import {
@@ -32,17 +34,23 @@ type DeploymentRecord = {
   _id: string;
   projectId?: string | null;
   repositoryName?: string;
+  applicationName?: string;
+  applicationType?: string;
+  deploymentType?: string;
   repositoryUrl?: string;
   branch?: string;
   status?: string;
   phase?: string;
   framework?: string;
   publicUrl?: string;
+  domainUrl?: string;
+  healthStatus?: string;
   startedAt?: string;
   completedAt?: string;
   createdAt?: string;
   updatedAt?: string;
   totalTime?: number;
+  estimatedCostMonthly?: number;
   error?: {
     message?: string;
   };
@@ -140,7 +148,7 @@ export default function DeploymentsPage() {
 
   const filteredDeployments = useMemo(() => {
     return deployments.filter((deployment) => {
-      const matchesQuery = `${deployment.repositoryName || ''} ${deployment.repositoryUrl || ''} ${deployment.framework || ''} ${deployment.phase || ''}`.toLowerCase().includes(query.toLowerCase());
+      const matchesQuery = `${deployment.applicationName || ''} ${deployment.repositoryName || ''} ${deployment.applicationType || ''} ${deployment.repositoryUrl || ''}`.toLowerCase().includes(query.toLowerCase());
       const matchesStatus = statusFilter === 'all' || deployment.status === statusFilter;
       return matchesQuery && matchesStatus;
     });
@@ -224,7 +232,7 @@ export default function DeploymentsPage() {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search repository, framework, or phase"
+              placeholder="Search application name or type"
               icon={<Search className="h-4 w-4" />}
             />
           </div>
@@ -264,7 +272,10 @@ export default function DeploymentsPage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredDeployments.map((deployment, index) => {
             const status = deployment.status || 'pending';
-            const liveUrl = deployment.publicUrl || deployment.metadata?.liveUrl;
+            const liveUrl = deployment.domainUrl || deployment.publicUrl || deployment.metadata?.liveUrl;
+            const appName = deployment.applicationName || deployment.repositoryName || 'Unnamed application';
+            const appType = formatApplicationType(deployment.applicationType);
+            const health = formatHealthStatus(deployment.healthStatus);
 
             return (
               <motion.button
@@ -281,11 +292,11 @@ export default function DeploymentsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-                      <Server className="h-3.5 w-3.5" />
-                      {deployment.framework || 'Deployment'}
+                      <Layers3 className="h-3.5 w-3.5" />
+                      {appType}
                     </div>
                     <h3 className="mt-2 truncate font-display text-lg font-semibold text-foreground group-hover:text-primary">
-                      {deployment.repositoryName || 'Unnamed repository'}
+                      {appName}
                     </h3>
                     <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
                       <GitBranch className="h-4 w-4" />
@@ -297,12 +308,15 @@ export default function DeploymentsPage() {
 
                 <div className="mt-4 grid gap-2 text-sm">
                   {[
-                    { label: 'Phase', value: deployment.phase || 'preparation' },
+                    { label: 'Health', value: health, icon: HeartPulse },
                     { label: 'Updated', value: formatDate(deployment.updatedAt || deployment.createdAt) },
                     { label: 'Duration', value: formatDuration(deployment.totalTime) },
                   ].map((row) => (
                     <div key={row.label} className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2">
-                      <span className="text-muted-foreground">{row.label}</span>
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        {row.icon && <row.icon className="h-3.5 w-3.5" />}
+                        {row.label}
+                      </span>
                       <span className="font-medium text-foreground">{row.value}</span>
                     </div>
                   ))}
@@ -321,7 +335,7 @@ export default function DeploymentsPage() {
                       {liveUrl}
                     </a>
                   ) : (
-                    <span>Live URL pending</span>
+                    <span>Domain URL pending</span>
                   )}
                 </div>
 

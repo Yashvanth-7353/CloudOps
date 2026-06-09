@@ -42,6 +42,31 @@ const DeploymentSchema = new mongoose.Schema(
     repositoryUrl: String,
     repositoryName: String,
 
+    // User-facing application classification (PaaS layer)
+    applicationType: {
+      type: String,
+      enum: ['frontend-website', 'backend-api', 'full-stack'],
+      index: true,
+    },
+    applicationName: String,
+    deploymentType: {
+      type: String,
+      enum: ['static-hosting', 'container-hosting', 'server-hosting'],
+    },
+    provider: {
+      type: String,
+      enum: ['aws', 'azure', 'cloudops'],
+    },
+    healthStatus: {
+      type: String,
+      enum: ['unknown', 'healthy', 'unhealthy', 'checking'],
+      default: 'unknown',
+      index: true,
+    },
+    domainUrl: String,
+    estimatedCostMonthly: Number,
+    estimatedDeployMinutes: Number,
+
     // Framework detection
     framework: {
       type: String,
@@ -208,7 +233,7 @@ const DeploymentSchema = new mongoose.Schema(
       message: String,
       deploymentService: {
         type: String,
-        enum: ['local', 'aws', 'azure'],
+        enum: ['local', 'aws', 'azure', 's3-static'],
       },
       data: mongoose.Schema.Types.Mixed,
     }],
@@ -309,11 +334,14 @@ DeploymentSchema.methods.markAsSuccess = function (publicUrl, totalTime) {
   this.status = 'success';
   this.phase = 'complete';
   this.publicUrl = publicUrl;
+  this.domainUrl = publicUrl;
+  this.healthStatus = 'healthy';
   this.totalTime = totalTime;
   this.completedAt = new Date();
 };
 
 DeploymentSchema.methods.markAsFailed = function (error, phase) {
+  this.healthStatus = 'unhealthy';
   this.status = 'failed';
   this.failureReason = error.message;
   this.error = {

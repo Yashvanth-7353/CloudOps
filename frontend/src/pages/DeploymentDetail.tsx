@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useParams } from 'react-router-dom';
+import { io } from 'socket.io-client';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -87,6 +88,11 @@ type DeploymentDetails = {
     liveUrl?: string;
     deployState?: string;
   };
+  applicationType?: string;
+  applicationName?: string;
+  deploymentService?: string;
+  domainUrl?: string;
+  healthStatus?: string;
   error?: {
     message?: string;
     phase?: string;
@@ -94,7 +100,7 @@ type DeploymentDetails = {
   metadata?: Record<string, any>;
 };
 
-const STEPS = [
+const DOCKER_STEPS = [
   'Preparing Deployment',
   'Cloning Repository',
   'Detecting Framework',
@@ -103,6 +109,14 @@ const STEPS = [
   'Pushing to AWS ECR',
   'Launching EC2',
   'Starting Container',
+  'Deployment Successful',
+];
+
+const STATIC_STEPS = [
+  'Preparing Deployment',
+  'Verifying S3 Access',
+  'Building Website',
+  'Publishing to S3',
   'Deployment Successful',
 ];
 
@@ -118,6 +132,13 @@ const phaseToStep: Record<string, number> = {
   container_start: 7,
   nginx_setup: 7,
   complete: 8,
+};
+
+const staticPhaseToStep: Record<string, number> = {
+  preparation: 0,
+  queued: 0,
+  docker_build: 2,
+  complete: 4,
 };
 
 const statusStyles: Record<string, string> = {
@@ -189,8 +210,18 @@ export default function DeploymentDetailPage() {
   const azureAciStatus = infrastructure?.aci?.status || 'Pending';
   const azureAciCpu = infrastructure?.aci?.cpu || 'Pending';
   const azureAciMemory = infrastructure?.aci?.memoryInGb || 'Pending';
-  const isAwsDeployment = deploymentProvider === 'aws' || infrastructure?.provider === 'aws' || infrastructure?.targetType === 'aws';
+  const isStaticDeployment =
+    deploymentProvider === 's3-static'
+    || infrastructure?.targetType === 's3-static'
+    || deployment?.applicationType === 'frontend-website';
+  const isAwsDeployment =
+    !isStaticDeployment
+    && (deploymentProvider === 'aws' || infrastructure?.provider === 'aws' || infrastructure?.targetType === 'aws');
   const isAzureDeployment = deploymentProvider === 'azure' || infrastructure?.provider === 'azure' || infrastructure?.targetType === 'azure';
+  const activeSteps = isStaticDeployment ? STATIC_STEPS : DOCKER_STEPS;
+  const activePhaseMap = isStaticDeployment ? staticPhaseToStep : phaseToStep;
+  const s3Bucket = infrastructure?.s3?.bucket || 'Pending';
+  const s3Prefix = infrastructure?.s3?.prefix || infrastructure?.s3?.siteSlug || 'Pending';
 
   useEffect(() => {
     if (!id) {
@@ -247,17 +278,73 @@ export default function DeploymentDetailPage() {
     };
   }, [id, deployment?.status]);
 
+  useEffect(() => {
+    if (!id) return;
+
+    const socketUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:5000';
+    const socket = io(socketUrl, { autoConnect: true });
+    const deploymentRoom = `deployment:${id}`;
+
+    const appendLog = (entry: DeploymentLog) => {
+      setLogs((prev) => {
+        const next = [...prev, entry];
+        return next.sort((a, b) => {
+          const aTime = a?.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const bTime = b?.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return aTime - bTime;
+        });
+      });
+    };
+
+    const onDeploymentLog = (data: { deploymentId?: string; message?: string; level?: string; timestamp?: string }) => {
+      if (data.deploymentId && data.deploymentId !== id) return;
+      if (!data.message) return;
+      appendLog({
+        timestamp: data.timestamp || new Date().toISOString(),
+        source: 'live',
+        level: data.level || 'info',
+        message: data.message,
+      });
+    };
+
+    const onBuildLog = (data: { text?: string; type?: string; timestamp?: string }) => {
+      if (!data.text) return;
+      appendLog({
+        timestamp: data.timestamp || new Date().toISOString(),
+        source: 'live',
+        level: data.type || 'info',
+        message: data.text,
+      });
+    };
+
+    socket.on('connect', () => {
+      socket.emit('join-deployment', deploymentRoom);
+      if (deployment?.repositoryName) {
+        socket.emit('join-deployment', deployment.repositoryName);
+      }
+    });
+
+    socket.on('deployment-log', onDeploymentLog);
+    socket.on('build-log', onBuildLog);
+
+    return () => {
+      socket.off('deployment-log', onDeploymentLog);
+      socket.off('build-log', onBuildLog);
+      socket.disconnect();
+    };
+  }, [id, deployment?.repositoryName]);
+
   const currentStep = useMemo(() => {
     if (!deployment) return 0;
-    if (deployment.status === 'success') return STEPS.length - 1;
-    return phaseToStep[deployment.phase || 'preparation'] ?? 0;
-  }, [deployment]);
+    if (deployment.status === 'success') return activeSteps.length - 1;
+    return activePhaseMap[deployment.phase || 'preparation'] ?? 0;
+  }, [deployment, activeSteps.length, activePhaseMap]);
 
   const progress = useMemo(() => {
     if (!deployment) return 0;
     if (deployment.status === 'success') return 100;
 
-    const stepPortion = Math.max(1, STEPS.length - 1);
+    const stepPortion = Math.max(1, activeSteps.length - 1);
     const base = (Math.min(currentStep, stepPortion) / stepPortion) * 100;
 
     if (deployment.status === 'failed' || deployment.status === 'cancelled') {
@@ -265,10 +352,10 @@ export default function DeploymentDetailPage() {
     }
 
     return Math.min(95, Math.max(5, Math.round(base + 8)));
-  }, [deployment, currentStep]);
+  }, [deployment, currentStep, activeSteps.length]);
 
   const timeline = useMemo(() => {
-    return STEPS.map((label, index) => {
+    return activeSteps.map((label, index) => {
       if ((deployment?.status === 'failed' || deployment?.status === 'cancelled') && index === currentStep) {
         return { label, status: 'failed' };
       }
@@ -283,7 +370,7 @@ export default function DeploymentDetailPage() {
       }
       return { label, status: 'pending' };
     });
-  }, [currentStep, deployment]);
+  }, [currentStep, deployment, activeSteps]);
 
   const renderedLogs = useMemo(() => {
     return logs.map((log) => {
@@ -448,12 +535,15 @@ export default function DeploymentDetailPage() {
                   <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     {[
                       { label: 'Deployment ID', value: deploymentKey },
+                      { label: 'Application', value: deployment.applicationName || deployment.repositoryName || 'Unknown' },
+                      { label: 'Application type', value: deployment.applicationType || 'Not set' },
                       { label: 'Project ID', value: deployment.projectId || 'Not linked' },
                       { label: 'Framework', value: deployment.framework || 'auto-detected' },
+                      { label: 'Health', value: deployment.healthStatus || 'unknown' },
                       { label: 'Started at', value: formatDate(deployment.startedAt || deployment.createdAt) },
                       { label: 'Completed at', value: formatDate(deployment.completedAt) },
                       { label: 'Phase', value: deployment.phase || 'preparation' },
-                      { label: 'Live URL', value: liveInfrastructureUrl || 'Pending' },
+                      { label: 'Live URL', value: deployment.domainUrl || liveInfrastructureUrl || 'Pending' },
                     ].map((item) => (
                       <div key={item.label} className="min-w-0 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
                         <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">{item.label}</div>
@@ -466,7 +556,7 @@ export default function DeploymentDetailPage() {
                 <div className="min-w-0 rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
                   <h2 className="text-lg font-semibold text-white">Progress</h2>
                   <div className="mt-4">
-                    <LiveProgressBar steps={STEPS} current={currentStep} progress={progress} />
+                    <LiveProgressBar steps={activeSteps} current={currentStep} progress={progress} />
                   </div>
                   <div className="mt-6">
                     <DeploymentTimeline steps={timeline as any} />
@@ -481,8 +571,14 @@ export default function DeploymentDetailPage() {
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Loading logs...
                       </div>
-                    ) : (
+                    ) : renderedLogs.length > 0 ? (
                       <TerminalStream logs={renderedLogs} />
+                    ) : (
+                      <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white/60">
+                        {deployment.status === 'building' || deployment.status === 'deploying'
+                          ? 'Waiting for deployment logs...'
+                          : deployment.error?.message || 'No logs recorded for this deployment.'}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -535,8 +631,14 @@ export default function DeploymentDetailPage() {
                     {[
                       { label: 'Provider', value: deploymentProvider },
                       { label: 'Target type', value: targetType },
+                      ...(isStaticDeployment
+                        ? [
+                            { label: 'S3 bucket', value: s3Bucket },
+                            { label: 'S3 prefix', value: s3Prefix },
+                          ]
+                        : []),
                       { label: 'Region', value: infrastructure?.region || metadata?.target?.awsRegion || azureAciLocation || 'Pending' },
-                      { label: 'Live URL', value: liveInfrastructureUrl || 'Pending' },
+                      { label: 'Live URL', value: deployment.domainUrl || liveInfrastructureUrl || 'Pending' },
                       { label: 'Deploy state', value: infrastructure?.deployState || 'Pending' },
                       { label: 'Container name', value: containerName },
                       { label: 'Container port', value: containerPort },

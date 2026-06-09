@@ -259,6 +259,13 @@ class DeploymentEngineService {
       userId: userId || String(input.userId || 'anonymous'),
       repositoryUrl,
       repositoryName,
+      ...(input.applicationType && { applicationType: input.applicationType }),
+      ...(input.applicationName && { applicationName: input.applicationName }),
+      ...(input.deploymentType && { deploymentType: input.deploymentType }),
+      ...(input.provider && { provider: input.provider }),
+      ...(input.estimatedCostMonthly != null && { estimatedCostMonthly: input.estimatedCostMonthly }),
+      ...(input.estimatedDeployMinutes != null && { estimatedDeployMinutes: input.estimatedDeployMinutes }),
+      healthStatus: 'checking',
       branch,
       environmentVariables: Object.entries(environmentVariables).map(([key, value]) => ({
         key,

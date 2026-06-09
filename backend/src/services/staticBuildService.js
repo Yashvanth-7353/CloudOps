@@ -17,10 +17,33 @@ class StaticBuildService {
     this.s3Client = new S3Client({
       region: this.s3Region,
       credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        accessKeyId: (process.env.AWS_ACCESS_KEY_ID || '').trim(),
+        secretAccessKey: (process.env.AWS_SECRET_ACCESS_KEY || '').trim(),
       },
     });
+  }
+
+  async verifyBucketAccess(bucket, onLog = () => {}) {
+    const probeKey = `cloudops-access-probe-${Date.now()}.txt`;
+    try {
+      await this.s3Client.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: probeKey,
+        Body: 'cloudops-probe',
+        ContentType: 'text/plain',
+      }));
+      onLog('S3 bucket write permission verified.', 'success');
+    } catch (error) {
+      const code = error.name || 'UnknownError';
+      const httpStatus = error.$metadata?.httpStatusCode;
+      onLog(`S3 PutObject denied on bucket "${bucket}" (${code}${httpStatus ? `, HTTP ${httpStatus}` : ''}).`, 'error');
+      throw new Error(
+        `S3 upload permission denied for bucket "${bucket}" in region "${this.s3Region}". `
+        + 'Your IAM user needs s3:PutObject on arn:aws:s3:::'
+        + `${bucket}/* and s3:ListBucket on arn:aws:s3:::${bucket}. `
+        + 'Confirm AWS_REGION matches the bucket region and credentials are for the bucket owner account.'
+      );
+    }
   }
 
   getEnhancedPath(cwd) {
@@ -176,10 +199,15 @@ class StaticBuildService {
     return `http://${host}/${normalizedPrefix}`;
   }
 
-  async deployStaticToS3({ projectPath, outputDirectory, siteSlug, onLog = () => {} }) {
+  async deployStaticToS3({ projectPath, outputDirectory, siteSlug, onLog = () => {}, skipAccessVerify = false }) {
     const bucket = this.getS3BucketName();
     if (!bucket) {
       throw new Error('S3_BUCKET_NAME or AWS_S3_BUCKET_NAME environment variable is required for S3 deployment.');
+    }
+
+    if (!skipAccessVerify) {
+      onLog(`Verifying access to S3 bucket: ${bucket}...`, 'system');
+      await this.verifyBucketAccess(bucket, onLog);
     }
 
     const { absolute: outputPath } = await this.resolveOutputDir(projectPath, outputDirectory);

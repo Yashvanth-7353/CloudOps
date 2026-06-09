@@ -19,6 +19,30 @@ export type SuggestedEnvVar = {
   isPublic: boolean;
 };
 
+export type ApplicationType = 'frontend-website' | 'backend-api' | 'full-stack';
+
+export type ApplicationRecommendation = {
+  applicationType: ApplicationType;
+  label: string;
+  description: string;
+  deploymentType: string;
+  provider: string;
+  estimatedCostMonthlyUsd: number;
+  estimatedDeployMinutes: number;
+  userFacingSummary: string;
+  detectedFrameworks?: string[];
+  confidence?: number;
+};
+
+export type ApplicationScanResult = {
+  applicationType: ApplicationType;
+  confidence: number;
+  primaryRoot: string;
+  detectedFrameworks: string[];
+  suggestedRoots: SuggestedRoot[];
+  recommendation: ApplicationRecommendation;
+};
+
 export type FrameworkDetection = {
   framework: string;
   preset: string;
@@ -76,9 +100,57 @@ export const deploymentService = {
   initDeploy: async (repositoryName: string, repositoryOwner: string) => {
     try {
       const response = await axiosClient.post('/api/deploy/init', { repositoryName, repositoryOwner });
-      return response.data;
+      return response.data as {
+        clonePath: string;
+        fileTree: FileNode[];
+        suggestedRoots?: SuggestedRoot[];
+        applicationScan?: ApplicationScanResult;
+        projectId?: string;
+        repositoryUrl?: string;
+        repositoryOwner?: string;
+        hasDockerfile?: boolean;
+      };
     } catch (error: any) {
       throw new Error(error.response?.data?.error || 'Failed to initialize deployment');
+    }
+  },
+
+  listApplicationTypes: async () => {
+    const response = await axiosClient.get('/api/deploy/application-types');
+    return response.data;
+  },
+
+  scanApplication: async (clonePath: string) => {
+    try {
+      const response = await axiosClient.post('/api/deploy/scan', { clonePath });
+      return response.data as ApplicationScanResult & { success?: boolean };
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to scan application');
+    }
+  },
+
+  deployApplication: async (data: {
+    applicationType: ApplicationType;
+    repositoryUrl: string;
+    repositoryName: string;
+    repositoryOwner?: string;
+    projectId?: string;
+    clonePath?: string;
+    rootDirectory?: string;
+    primaryRoot?: string;
+    buildCommand?: string;
+    outputDirectory?: string;
+    environmentVariables?: Record<string, string>;
+    applicationName?: string;
+    socketId?: string;
+    instanceType?: string;
+    infrastructureOverride?: string;
+  }) => {
+    try {
+      const response = await axiosClient.post('/api/deploy/application', data);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to start deployment');
     }
   },
 

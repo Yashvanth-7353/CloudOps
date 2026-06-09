@@ -4,6 +4,7 @@ const gitService = require('../services/gitService');
 const deploymentEngine = require('../services/deploymentEngineService');
 const frameworkDetector = require('../services/frameworkDetector');
 const staticBuildService = require('../services/staticBuildService');
+const deploymentManager = require('../services/deployment/DeploymentManager');
 const fs = require('fs');
 const path = require('path');
 
@@ -103,6 +104,7 @@ const initDeploy = async (req, res) => {
         const hasDockerfile = await gitService.checkFileExists(clonePath, 'Dockerfile');
         const fileTree = getDirectoryTree(clonePath);
         const suggestedRoots = await frameworkDetector.suggestRootDirectories(clonePath);
+        const scanResult = await deploymentManager.scanRepository(clonePath);
 
         res.status(200).json({
             success: true,
@@ -115,12 +117,105 @@ const initDeploy = async (req, res) => {
             fileTree,
             suggestedRoots,
             defaultBranch: project.defaultBranch || 'main',
+            applicationScan: scanResult,
             message: 'Repository cloned successfully.'
         });
 
     } catch (error) {
         console.error('Init Deploy Error:', error);
         res.status(500).json({ error: 'Failed to initialize deployment.' });
+    }
+};
+
+const scanApplication = async (req, res) => {
+    try {
+        const { clonePath } = req.body;
+        if (!clonePath) return res.status(400).json({ error: 'clonePath is required.' });
+
+        const scanResult = await deploymentManager.scanRepository(clonePath);
+        res.status(200).json({ success: true, ...scanResult });
+    } catch (error) {
+        console.error('Scan Application Error:', error);
+        res.status(500).json({ error: error.message || 'Failed to scan repository.' });
+    }
+};
+
+const listApplicationTypes = async (req, res) => {
+    res.status(200).json({
+        success: true,
+        applicationTypes: deploymentManager.listApplicationTypes(),
+    });
+};
+
+const deployApplication = async (req, res) => {
+    const io = req.app.get('io');
+
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        let userId = req.body.userId || 'anonymous';
+        if (token) {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            userId = String(decoded.id || decoded.githubId || userId);
+        }
+
+        const context = await resolveDeploymentContext(req);
+        const {
+            applicationType,
+            clonePath,
+            rootDirectory,
+            buildCommand,
+            outputDirectory,
+            environmentVariables = {},
+            infrastructureOverride,
+            socketId,
+            instanceType,
+        } = req.body;
+
+        if (!applicationType) {
+            return res.status(400).json({ success: false, error: 'applicationType is required' });
+        }
+
+        const repositoryUrl = context.repositoryUrl || context.project?.repositoryUrl || req.body.repositoryUrl;
+        const repositoryName = context.repositoryName || context.project?.repositoryName || req.body.repositoryName;
+
+        if (!repositoryUrl || !repositoryName) {
+            return res.status(400).json({
+                success: false,
+                error: 'repositoryUrl and repositoryName are required',
+            });
+        }
+
+        const deployInput = {
+            userId,
+            projectId: context.project?._id || req.body.projectId,
+            repositoryUrl,
+            repositoryName,
+            repositoryOwner: req.body.repositoryOwner || context.project?.repositoryOwner,
+            applicationType,
+            applicationName: req.body.applicationName || repositoryName,
+            clonePath,
+            rootDirectory: rootDirectory || req.body.primaryRoot || './',
+            buildCommand,
+            outputDirectory,
+            environmentVariables,
+            infrastructureOverride,
+            socketId: socketId || null,
+            instanceType,
+            branch: req.body.branch || 'main',
+        };
+
+        const result = await deploymentManager.deploy(deployInput, io);
+
+        return res.status(202).json({
+            success: true,
+            message: 'Deployment started',
+            applicationType,
+            recommendation: deploymentManager.getRecommendation(applicationType),
+            ...result,
+        });
+    } catch (error) {
+        console.error('Deploy Application Error:', error);
+        return res.status(400).json({ success: false, error: error.message || 'Failed to start deployment' });
     }
 };
 
@@ -550,6 +645,9 @@ const startAWSEC2Deployment = async (req, res) => {
 
 module.exports = {
     initDeploy,
+    scanApplication,
+    listApplicationTypes,
+    deployApplication,
     detectFramework,
     saveDeploymentFiles,
     startBuild,

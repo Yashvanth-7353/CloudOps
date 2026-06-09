@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Loader2, Folder, File, ArrowLeft, CheckCircle2, Cloud, Server, Box, Globe, ExternalLink } from 'lucide-react';
-import { deploymentService, type SuggestedRoot } from '../services/deployment-service';
+import { deploymentService, type ApplicationScanResult, type SuggestedRoot } from '../services/deployment-service';
 import StaticDeployPanel from '@/components/deployments/StaticDeployPanel';
+import ApplicationDeployPanel from '@/components/deployments/ApplicationDeployPanel';
 import { io, Socket } from 'socket.io-client';
 
 type FileNode = { name: string; type: 'file' | 'directory'; children?: FileNode[] };
@@ -17,11 +18,13 @@ export default function DeployProject() {
   const socketRef = useRef<Socket | null>(null);
 
   // Process States
-  const [step, setStep] = useState<'cloning' | 'type' | 'env' | 'dockerfile' | 'aws' | 'azure' | 's3-folder' | 's3-framework' | 's3-env' | 'deploying' | 'complete'>('cloning');
+  const [step, setStep] = useState<'cloning' | 'review' | 'type' | 'env' | 'dockerfile' | 'aws' | 'azure' | 's3-folder' | 's3-framework' | 's3-env' | 'deploying' | 'complete'>('cloning');
   const [clonePath, setClonePath] = useState('');
   const [hasDockerfile, setHasDockerfile] = useState(true);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [suggestedRoots, setSuggestedRoots] = useState<SuggestedRoot[]>([]);
+  const [applicationScan, setApplicationScan] = useState<ApplicationScanResult | null>(null);
+  const [primaryRoot, setPrimaryRoot] = useState('./');
   const [publicUrl, setPublicUrl] = useState('');
   const [projectId, setProjectId] = useState('');
   const [repositoryOwner, setRepositoryOwner] = useState('');
@@ -88,12 +91,20 @@ export default function DeployProject() {
         setHasDockerfile(result.hasDockerfile);
         setFileTree(result.fileTree || []);
         setSuggestedRoots(result.suggestedRoots || [{ path: './', label: 'Root (./)', hasPackageJson: false }]);
+        if (result.applicationScan) {
+          setApplicationScan(result.applicationScan);
+          setPrimaryRoot(result.applicationScan.primaryRoot || './');
+          addLog(
+            `Detected ${result.applicationScan.recommendation?.label || result.applicationScan.applicationType} (${Math.round((result.applicationScan.confidence || 0) * 100)}% confidence)`,
+            'success'
+          );
+        }
         setProjectId(result.projectId);
         setRepositoryOwner(result.repositoryOwner);
         setRepositoryUrl(result.repositoryUrl || `https://github.com/${owner}/${repo}.git`);
         
         addLog(`Repository cloned successfully.`, 'success');
-        setStep('type'); // Move to deployment type selection
+        setStep('review');
       } catch (err: any) {
         addLog(`Failed to clone: ${err.message}`, 'error');
       }
@@ -152,33 +163,43 @@ export default function DeployProject() {
       addLog(data.text, data.type);
     });
 
-    socket.on('build-complete', (data?: { status?: string; publicUrl?: string }) => {
-      if (deploymentType === 's3-static' && data?.status === 'success' && data.publicUrl) {
-        setPublicUrl(data.publicUrl);
-        saveDeployedProject(data.publicUrl);
+    socket.on('build-complete', (data?: { status?: string; publicUrl?: string; liveUrl?: string; deploymentId?: string }) => {
+      const url = data?.publicUrl || data?.liveUrl;
+      if (data?.status === 'success' && url) {
+        setPublicUrl(url);
+        saveDeployedProject(url);
         setStep('complete');
+        if (data.deploymentId) {
+          setActiveDeploymentId(data.deploymentId);
+        }
+        return;
+      }
+      if (data?.status === 'failed') {
+        setStep('review');
         return;
       }
 
       setStep('complete');
-
-      if (activeDeploymentId) {
-        setTimeout(() => {
-          navigate(`/deployments/${encodeURIComponent(activeDeploymentId)}`);
-        }, 2000);
+      if (activeDeploymentId || data?.deploymentId) {
+        const id = data?.deploymentId || activeDeploymentId;
+        setTimeout(() => navigate(`/deployments/${encodeURIComponent(id)}`), 2000);
       }
     });
 
     socket.on('deployment-complete', (data) => {
       addLog(`✅ Deployment completed successfully!`, 'success');
-      if (data?.liveUrl) {
-        addLog(`🔗 Live URL: ${data.liveUrl}`, 'success');
+      const url = data?.liveUrl || data?.publicUrl;
+      if (url) {
+        addLog(`🔗 Live URL: ${url}`, 'success');
+        setPublicUrl(url);
+        saveDeployedProject(url);
       }
       setStep('complete');
 
       const deploymentIdToOpen = data?.deploymentId || activeDeploymentId;
       if (deploymentIdToOpen) {
         setCurrentDeploymentId(deploymentIdToOpen);
+        setActiveDeploymentId(deploymentIdToOpen);
         setTimeout(() => {
           navigate(`/deployments/${encodeURIComponent(deploymentIdToOpen)}`);
         }, 2000);
@@ -310,8 +331,62 @@ export default function DeployProject() {
           </div>
 
           {/* Configuration Form */}
-          {(step === 'type' || step === 'env' || step === 'dockerfile' || step === 'aws' || step === 'azure' || step === 's3-folder' || step === 's3-framework' || step === 's3-env') && (
+          {(step === 'review' || step === 'type' || step === 'env' || step === 'dockerfile' || step === 'aws' || step === 'azure' || step === 's3-folder' || step === 's3-framework' || step === 's3-env') && (
             <div className="bg-[rgba(12,16,26,0.6)] border border-white/10 rounded-xl p-5 backdrop-blur-md shrink-0 max-h-[50vh] overflow-y-auto">
+              {step === 'review' && applicationScan && repo && (
+                <ApplicationDeployPanel
+                  scan={applicationScan}
+                  clonePath={clonePath}
+                  repositoryUrl={repositoryUrl}
+                  repositoryName={repo}
+                  repositoryOwner={repositoryOwner || owner}
+                  projectId={projectId}
+                  primaryRoot={primaryRoot}
+                  onPrimaryRootChange={setPrimaryRoot}
+                  onDeploying={() => setStep('deploying')}
+                  onDeploymentStarted={(deploymentId) => {
+                    setActiveDeploymentId(deploymentId);
+                    navigate(`/deployments/${encodeURIComponent(deploymentId)}`);
+                  }}
+                  onComplete={(url, deploymentId) => {
+                    setPublicUrl(url);
+                    saveDeployedProject(url);
+                    if (deploymentId) {
+                      setActiveDeploymentId(deploymentId);
+                      navigate(`/deployments/${encodeURIComponent(deploymentId)}`);
+                      return;
+                    }
+                    setStep('complete');
+                  }}
+                  onError={() => setStep('review')}
+                  addLog={addLog}
+                  socketRef={socketRef}
+                />
+              )}
+
+              {step === 'review' && !applicationScan && (
+                <div className="text-sm text-white/60">
+                  <p>Scanning repository...</p>
+                  <button
+                    type="button"
+                    onClick={() => setStep('type')}
+                    className="mt-3 text-xs text-cyan-400 hover:underline"
+                  >
+                    Use advanced deployment options
+                  </button>
+                </div>
+              )}
+
+              {step === 'review' && applicationScan && (
+                <button
+                  type="button"
+                  onClick={() => setStep('type')}
+                  className="mt-4 w-full text-center text-xs text-white/40 hover:text-white/60"
+                >
+                  Advanced deployment options (Local, AWS, Azure, S3)
+                </button>
+              )}
+
               {/* Deployment Type Selection */}
               {step === 'type' && (
                 <>
@@ -494,18 +569,18 @@ export default function DeployProject() {
                 {step === 'cloning' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Clone
               </div>
               <div className="w-4 h-[1px] bg-white/20" />
-              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${step === 'cloning' ? 'text-white/30' : ['type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env', 'deploying', 'complete'].includes(step) ? 'text-emerald-400' : 'text-cyan-400'}`}>
-                {step === 'cloning' ? <div className="w-4 h-4 rounded-full border border-white/30" /> : ['type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env', 'deploying', 'complete'].includes(step) ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Config
+              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${step === 'cloning' ? 'text-white/30' : ['review', 'type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env', 'deploying', 'complete'].includes(step) ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                {step === 'cloning' ? <div className="w-4 h-4 rounded-full border border-white/30" /> : ['review', 'type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env', 'deploying', 'complete'].includes(step) ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Configure
               </div>
               <div className="w-4 h-[1px] bg-white/20" />
-              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${['cloning', 'type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env'].includes(step) ? 'text-white/30' : step === 'complete' ? 'text-emerald-400' : 'text-cyan-400'}`}>
-                {['cloning', 'type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env'].includes(step) ? <div className="w-4 h-4 rounded-full border border-white/30" /> : step === 'complete' ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Deploy
+              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${['cloning', 'review', 'type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env'].includes(step) ? 'text-white/30' : step === 'complete' ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                {['cloning', 'review', 'type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env'].includes(step) ? <div className="w-4 h-4 rounded-full border border-white/30" /> : step === 'complete' ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Deploy
               </div>
             </div>
             {step === 'complete' && (
               <div className="flex items-center gap-3 ml-4">
                 <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-xs font-bold animate-pulse">LIVE</span>
-                {deploymentType === 's3-static' && publicUrl && (
+                {publicUrl && (
                   <a
                     href={publicUrl}
                     target="_blank"

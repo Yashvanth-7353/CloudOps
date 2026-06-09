@@ -204,7 +204,19 @@ function emitLog(io, socketId, message) {
  * Main entry point — called from the route handler
  * Responds 202 immediately, then runs the pipeline async
  */
-async function runAzureDeployment({ repoUrl, appName, socketId, io, userId }) {
+async function runAzureDeployment({
+  repoUrl,
+  appName,
+  socketId,
+  io,
+  userId,
+  applicationType = 'backend-api',
+  deploymentType = 'container-hosting',
+  provider = 'azure',
+  applicationName,
+  estimatedCostMonthly,
+  estimatedDeployMinutes,
+}) {
   const cfg = azureConfig();
   if (!cfg.acrLoginServer) throw new Error('ACR_LOGIN_SERVER is not configured in backend .env');
 
@@ -224,9 +236,20 @@ async function runAzureDeployment({ repoUrl, appName, socketId, io, userId }) {
       userId: userId || 'anonymous',
       repositoryUrl: repoUrl,
       repositoryName: sanitizedName,
+      applicationType,
+      applicationName: applicationName || sanitizedName,
+      deploymentType,
+      provider,
       deploymentService: 'azure',
+      estimatedCostMonthly,
+      estimatedDeployMinutes,
+      healthStatus: 'checking',
       status: 'pending',
       phase: 'preparation',
+      metadata: {
+        hideInfrastructure: true,
+        userFacingSummary: 'Managed container hosting',
+      },
       infrastructure: {
         provider: 'azure',
         targetType: 'azure',
@@ -321,6 +344,8 @@ async function runAzureDeployment({ repoUrl, appName, socketId, io, userId }) {
       deployment.infrastructure.aci.status = 'running';
       deployment.infrastructure.liveUrl = appUrl;
       deployment.publicUrl = appUrl;
+      deployment.domainUrl = appUrl;
+      deployment.healthStatus = 'healthy';
       deployment.status = 'success';
       deployment.phase = 'complete';
       deployment.completedAt = new Date();

@@ -5,7 +5,12 @@ const deploymentController = require('../controllers/deploymentController');
 // 1. Clones the repo
 router.post('/init', deploymentController.initDeploy);
 
-// 2. Detects framework for static S3 deployment
+// 2. Application-type PaaS layer
+router.get('/application-types', deploymentController.listApplicationTypes);
+router.post('/scan', deploymentController.scanApplication);
+router.post('/application', deploymentController.deployApplication);
+
+// 3. Framework detection (static build wizard)
 router.post('/detect', deploymentController.detectFramework);
 
 // 3. Saves the .env and Dockerfile
