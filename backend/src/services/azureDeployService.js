@@ -24,11 +24,11 @@ function azureConfig() {
     location: process.env.AZURE_LOCATION || 'southeastasia',
     blobContainer: process.env.AZURE_BLOB_CONTAINER || 'cloudops-artifacts',
     prefixBase: process.env.AZURE_PREFIX_BASE || 'deployments',
-    // Path to the azure_orchestrator Python package — resolve from backend/ root
+    // Path to the orchestrator Python package — resolve from backend/ root
     orchestratorCwd: path.resolve(
       __dirname,  // backend/src/services
       '..', '..', // -> backend/
-      '..', 'azure', 'azure_orchestrator'  // -> CloudOps/azure/azure_orchestrator
+      '..', 'azure', 'orchestrator'  // -> CloudOps/azure/orchestrator
     ),
     python: process.env.PYTHON || 'python',
   };
@@ -163,7 +163,7 @@ async function runAciViaPython({ deploymentId, appName, image, socketId, logLine
   emitLog(io, socketId, `[Azure] Starting ACI container in ${cfg.resourceGroup}/${cfg.location}...`);
   if (deployment) deployment.addLog('aci', 'info', `Starting ACI container in ${cfg.resourceGroup}/${cfg.location}...`, {}, 'azure');
 
-  await runCommand(cfg.python, ['-m', 'azure_orchestrator.aci_main'], { cwd: cfg.orchestratorCwd, env }, (line) => {
+  await runCommand(cfg.python, ['-m', 'orchestrator.core.aci_main'], { cwd: cfg.orchestratorCwd, env }, (line) => {
     const msg = line.trimEnd();
     if (!msg) return;
     emitLog(io, socketId, msg);
@@ -189,7 +189,7 @@ async function uploadArtifacts({ deploymentId, summaryPath, logsPath }) {
   const prefix = `${cfg.prefixBase}/${deploymentId}`;
   await runCommand(
     cfg.python,
-    ['-m', 'azure_orchestrator.cli_upload', '--container', cfg.blobContainer, '--prefix', prefix, '--summary-json', summaryPath, '--logs-json', logsPath],
+    ['-m', 'orchestrator.core.cli_upload', '--container', cfg.blobContainer, '--prefix', prefix, '--summary-json', summaryPath, '--logs-json', logsPath],
     { cwd: cfg.orchestratorCwd },
     () => {}
   );
