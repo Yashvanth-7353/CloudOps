@@ -4,19 +4,24 @@ const fs = require('fs').promises;
 const crypto = require('crypto');
 
 class GitService {
-    async cloneRepository(repoUrl) {
-        // Generate a unique folder name for this deployment
+    buildAuthenticatedUrl(repoUrl, githubToken) {
+        if (!githubToken || !repoUrl.startsWith('https://github.com/')) {
+            return repoUrl;
+        }
+        return repoUrl.replace('https://github.com/', `https://x-access-token:${githubToken}@github.com/`);
+    }
+
+    async cloneRepository(repoUrl, options = {}) {
         const tempDirName = crypto.randomBytes(16).toString('hex');
         const clonePath = path.join(__dirname, '../../temp', tempDirName);
 
-        // Ensure the temp directory exists
         await fs.mkdir(path.join(__dirname, '../../temp'), { recursive: true });
 
+        const cloneUrl = this.buildAuthenticatedUrl(repoUrl, options.githubToken);
         console.log(`Cloning into ${clonePath}...`);
         const git = simpleGit();
-        
-        // Shallow clone (--depth 1) makes it incredibly fast because it only downloads the latest code
-        await git.clone(repoUrl, clonePath, ['--depth', '1']); 
+
+        await git.clone(cloneUrl, clonePath, ['--depth', '1']);
 
         return clonePath;
     }

@@ -44,6 +44,31 @@ io.on('connection', (socket) => {
 app.use(cors());
 app.use(express.json());
 
+// Serve deployed static sites (frontend dist output)
+const path = require('path');
+const fs = require('fs');
+const sitesDir = path.join(__dirname, 'public/sites');
+
+app.use('/sites', (req, res) => {
+    const parts = req.path.split('/').filter(Boolean);
+    if (parts.length === 0) return res.status(404).send('Site not found');
+
+    const siteSlug = parts[0];
+    const sitePath = path.join(sitesDir, siteSlug);
+    const filePath = parts.length > 1
+        ? path.join(sitePath, ...parts.slice(1))
+        : path.join(sitePath, 'index.html');
+
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        return res.sendFile(filePath);
+    }
+
+    const indexPath = path.join(sitePath, 'index.html');
+    if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
+
+    res.status(404).send('Site not found');
+});
+
 // --- MONGODB CONNECTION ---
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('✅ MongoDB connected successfully!'))
