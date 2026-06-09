@@ -1,0 +1,13 @@
+# CloudOps Azure Orchestrator Requirements
+# Python 3.11+ required
+
+# Azure SDK packages
+azure-identity==1.14.0
+azure-mgmt-containerinstance==10.1.0
+azure-storage-blob==12.18.3
+
+# Configuration management
+python-dotenv==1.0.0
+
+# Type hints and utilities
+typing-extensions==4.8.0

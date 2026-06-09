@@ -5,7 +5,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-from azure_orchestrator.storage import get_blob_service_client, upload_bytes, upload_file
+from orchestrator.core.storage import get_blob_service_client, upload_bytes, upload_file
 
 
 def _maybe_upload_file(

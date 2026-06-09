@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
-from azure_orchestrator.storage import get_blob_service_client, list_blobs, upload_file
+from orchestrator.core.storage import get_blob_service_client, list_blobs, upload_file
 
 
 def _utc_iso() -> str:

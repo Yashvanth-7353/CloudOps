@@ -4,7 +4,7 @@ import sys
 
 from dotenv import load_dotenv
 
-from azure_orchestrator.aci_runner import run_aci_task
+from orchestrator.core.aci_runner import run_aci_task
 
 
 def main() -> int:
