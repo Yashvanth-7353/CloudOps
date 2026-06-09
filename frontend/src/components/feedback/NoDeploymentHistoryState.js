@@ -1,0 +1,10 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { History, Rocket, Plus } from 'lucide-react';
+import FeedbackState from './FeedbackState';
+const NoDeploymentHistoryState = () => {
+    return (_jsx(FeedbackState, { tone: "neutral", icon: History, title: "No deployment history", description: "Once you deploy your first service, CloudOps will capture the release timeline, logs, and performance history here.", actions: [
+            { label: 'Deploy first app', href: '/dashboard' },
+            { label: 'View repositories', href: '/dashboard', variant: 'secondary' },
+        ], illustration: _jsxs("div", { className: "mx-auto flex items-center justify-center gap-3 text-white/45", children: [_jsx("div", { className: "rounded-2xl border border-white/10 bg-white/5 p-4", children: _jsx(History, { className: "h-6 w-6" }) }), _jsx(Plus, { className: "h-5 w-5" }), _jsx("div", { className: "rounded-2xl border border-cyan-400/15 bg-cyan-500/10 p-4 text-cyan-200", children: _jsx(Rocket, { className: "h-6 w-6" }) })] }) }));
+};
+export default NoDeploymentHistoryState;

@@ -1,38 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import RepoCard, { Repo } from './RepoCard';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createPortal } from 'react-dom';
 import { githubService, GitHubRepository } from '@/services/github-service';
-import { axiosClient } from '@/services/api/axios-client';
 import { useAuth } from '@/app/providers/auth-provider';
 import { useNavigate } from 'react-router-dom';
-import { Github, Loader2, Search, Plus, Trash2, X } from 'lucide-react';
+import { Github, Loader2, Search } from 'lucide-react';
 
 const STORAGE_KEY = 'cloudops_connected_repositories';
 
-type EnvDraft = {
-  id: number;
-  key: string;
-  value: string;
-};
-
-const isObjectId = (value: string | undefined | null) => !!value && /^[a-f0-9]{24}$/i.test(value);
-
-const buildProjectId = (repoId: string | number, user: any) => {
-  const fromUser = user?.id || user?._id || user?.sub;
-  if (isObjectId(fromUser)) {
-    return fromUser;
-  }
-
-  if (typeof repoId === 'number' && Number.isFinite(repoId)) {
-    return Math.abs(repoId).toString(16).padStart(24, '0').slice(0, 24);
-  }
-
-  return '507f1f77bcf86cd799439011';
-};
-
 const RepoList: React.FC = () => {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -40,11 +17,6 @@ const RepoList: React.FC = () => {
   const [showBrowser, setShowBrowser] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deployingRepo, setDeployingRepo] = useState<Repo | null>(null);
-  const [envVars, setEnvVars] = useState<EnvDraft[]>([{ id: 1, key: 'NODE_ENV', value: 'production' }]);
-  const [isStartingDeployment, setIsStartingDeployment] = useState(false);
-  const [startDeploymentError, setStartDeploymentError] = useState<string | null>(null);
-
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -122,174 +94,9 @@ const RepoList: React.FC = () => {
   };
 
   const handleDeploy = (repo: Repo) => {
-    setDeployingRepo(repo);
-    setEnvVars((current) => current.length > 0 ? current : [{ id: Date.now(), key: 'NODE_ENV', value: 'production' }]);
+    const owner = repo.fullName.split('/')[0];
+    navigate(`/deploy/${owner}/${repo.name}`);
   };
-
-  const addEnvVar = () => {
-    setEnvVars((current) => [...current, { id: Date.now(), key: '', value: '' }]);
-  };
-
-  const updateEnvVar = (id: number, field: 'key' | 'value', nextValue: string) => {
-    setEnvVars((current) => current.map((item) => (item.id === id ? { ...item, [field]: nextValue } : item)));
-  };
-
-  const removeEnvVar = (id: number) => {
-    setEnvVars((current) => current.filter((item) => item.id !== id));
-  };
-
-  const confirmDeploy = async () => {
-    if (!deployingRepo) return;
-
-    const repoToDeploy = deployingRepo;
-
-    const normalizedEnvVars = envVars
-      .map((item) => ({ key: item.key.trim(), value: item.value.trim() }))
-      .filter((item) => item.key.length > 0);
-
-    const environmentVariables = normalizedEnvVars.reduce<Record<string, string>>((acc, item) => {
-      acc[item.key] = item.value;
-      return acc;
-    }, {});
-
-    setStartDeploymentError(null);
-    setIsStartingDeployment(true);
-
-    try {
-      const response = await axiosClient.post('/api/deploy/start', {
-        projectId: buildProjectId(repoToDeploy.id, user),
-        repositoryUrl: repoToDeploy.cloneUrl,
-        branch: repoToDeploy.defaultBranch || 'main',
-        environmentVariables,
-      });
-
-      const deploymentId = response?.data?.deploymentId;
-      if (!deploymentId) {
-        throw new Error('Deployment started but no deploymentId was returned by the server.');
-      }
-
-      sessionStorage.setItem('cloudops_selected_repository', JSON.stringify({ ...repoToDeploy, envVars: normalizedEnvVars }));
-      setDeployingRepo(null);
-      navigate(`/deployment-logs?deploymentId=${encodeURIComponent(deploymentId)}`);
-    } catch (deployError: any) {
-      setStartDeploymentError(
-        deployError?.response?.data?.error
-        || deployError?.response?.data?.details?.join(', ')
-        || deployError?.message
-        || 'Unable to start deployment.'
-      );
-    } finally {
-      setIsStartingDeployment(false);
-    }
-  };
-
-  const closeDeployModal = () => {
-    if (isStartingDeployment) return;
-    setStartDeploymentError(null);
-    setDeployingRepo(null);
-  };
-
-  const deployModal = deployingRepo ? (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 px-4 py-6"
-      >
-        <motion.div
-          initial={{ opacity: 0, y: 24, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 24, scale: 0.98 }}
-          className="relative z-[10000] w-full max-w-2xl rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.96)] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.5)]"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="text-2xl font-semibold text-white">
-                Deploy {deployingRepo.name}
-              </h3>
-              <p className="mt-1 text-sm text-white/60">Add environment variables, then start deployment to see real server logs.</p>
-            </div>
-
-            <button
-              type="button"
-              onClick={closeDeployModal}
-              className={`rounded-xl border border-white/10 bg-white/5 p-2 text-white/70 transition ${isStartingDeployment ? 'cursor-not-allowed opacity-40' : 'hover:bg-white/10'}`}
-              aria-label="Close deploy dialog"
-              disabled={isStartingDeployment}
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          <div className="mt-5 space-y-3">
-            {envVars.map((item) => (
-              <div key={item.id} className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-                <input
-                  value={item.key}
-                  onChange={(event) => updateEnvVar(item.id, 'key', event.target.value)}
-                  placeholder="ENV KEY"
-                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
-                />
-                <input
-                  value={item.value}
-                  onChange={(event) => updateEnvVar(item.id, 'value', event.target.value)}
-                  placeholder="ENV VALUE"
-                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/40"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeEnvVar(item.id)}
-                  className="inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/70 transition hover:bg-white/10"
-                  aria-label="Remove environment variable"
-                  disabled={isStartingDeployment}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {startDeploymentError && (
-            <div className="mt-4 rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-              {startDeploymentError}
-            </div>
-          )}
-
-          <div className="mt-4 flex items-center justify-between gap-4">
-            <button
-              type="button"
-              onClick={addEnvVar}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80 transition hover:bg-white/10 disabled:opacity-50"
-              disabled={isStartingDeployment}
-            >
-              <Plus className="h-4 w-4" />
-              Add variable
-            </button>
-
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={closeDeployModal}
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80 transition hover:bg-white/10 disabled:opacity-50"
-                disabled={isStartingDeployment}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmDeploy}
-                className="rounded-xl bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20 disabled:opacity-50"
-                disabled={isStartingDeployment}
-              >
-                {isStartingDeployment ? 'Starting deployment...' : 'Start deployment'}
-              </button>
-            </div>
-          </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
-  ) : null;
 
   return (
     <div>
@@ -319,7 +126,7 @@ const RepoList: React.FC = () => {
         <div className="flex items-center justify-between gap-4 mb-4">
           <div>
             <h3 className="text-2xl font-bold text-text-primary">Connected repositories</h3>
-            <p className="text-text-secondary">Choose a repository here, then deploy it to show up in Live Projects.</p>
+            <p className="text-text-secondary">Deploy frontends with one click — build dist files and go live, no Docker required.</p>
           </div>
           <div className="text-sm text-text-secondary">{connectedRepos.length} selected</div>
         </div>
@@ -340,8 +147,6 @@ const RepoList: React.FC = () => {
           </div>
         )}
       </section>
-
-      {typeof document !== 'undefined' && deployModal ? createPortal(deployModal, document.body) : null}
 
       {showBrowser && (
         <section className="rounded-2xl border border-white/8 bg-[rgba(10,14,24,0.62)] backdrop-blur-md p-5 shadow-[0_20px_60px_rgba(2,6,23,0.35)]">

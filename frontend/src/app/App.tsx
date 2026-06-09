@@ -25,7 +25,7 @@ function App() {
         <ErrorBoundary>
           <QueryClientProvider client={queryClient}>
             <AuthProvider>
-              <Router>
+              <Router basename={import.meta.env.BASE_URL !== './' ? import.meta.env.BASE_URL : undefined}>
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
