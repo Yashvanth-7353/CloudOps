@@ -16,7 +16,6 @@ const LoginPage = lazy(() => import('@/pages/Login'));
 const DashboardPage = lazy(() => import('@/pages/Dashboard'));
 const AnalyticsPage = lazy(() => import('@/pages/Analytics'));
 const BillingPage = lazy(() => import('@/pages/Billing'));
-const PricingPage = lazy(() => import('@/pages/Pricing'));
 const SettingsPage = lazy(() => import('@/pages/Settings'));
 const DeploymentsPage = lazy(() => import('@/pages/Deployments'));
 const DeploymentDetailPage = lazy(() => import('@/pages/DeploymentDetail'));
@@ -69,7 +68,6 @@ function Routes() {
           <RouterRoutes location={location} key={location.pathname}>
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/pricing" element={<PricingPage />} />
             <Route path="/demo/deployment-pipeline" element={<DeploymentPipelineShowcase />} />
 
             <Route element={<ProtectedRoutes />}>
@@ -91,8 +89,8 @@ function Routes() {
               path="*"
               element={
                 <div className="page-shell page-shell--wide text-center">
-                  <h1 className="text-4xl font-semibold text-white">404</h1>
-                  <p className="mt-3 text-white/65">Page Not Found</p>
+                  <h1 className="font-display text-4xl font-bold text-foreground">404</h1>
+                  <p className="mt-3 text-muted-foreground">Page not found</p>
                 </div>
               }
             />

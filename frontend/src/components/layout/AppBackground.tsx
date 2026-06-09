@@ -1,26 +1,33 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
+import { useTheme } from '@/context/ThemeContext';
 
 const AppBackground: React.FC = () => {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   return (
-    <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <div className="app-grid-overlay" />
-      <motion.div
-        className="app-orb app-orb--primary"
-        animate={{ y: [0, -18, 0], x: [0, 10, 0] }}
-        transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+    <div
+      aria-hidden
+      className={cn(
+        'pointer-events-none fixed inset-0 -z-10',
+        isDark ? 'bg-background' : 'bg-[hsl(220_14%_98%)]'
+      )}
+    >
+      {/* Subtle grid — visible in both themes */}
+      <div
+        className="absolute inset-0 opacity-[0.4]"
+        style={{
+          backgroundImage: isDark
+            ? 'linear-gradient(hsl(215 28% 14% / 0.5) 1px, transparent 1px), linear-gradient(90deg, hsl(215 28% 14% / 0.5) 1px, transparent 1px)'
+            : 'linear-gradient(hsl(220 13% 91%) 1px, transparent 1px), linear-gradient(90deg, hsl(220 13% 91%) 1px, transparent 1px)',
+          backgroundSize: '64px 64px',
+          maskImage: 'radial-gradient(ellipse 80% 60% at 50% 0%, black, transparent)',
+        }}
       />
-      <motion.div
-        className="app-orb app-orb--accent"
-        animate={{ y: [0, 14, 0], x: [0, -12, 0] }}
-        transition={{ duration: 15, repeat: Infinity, ease: 'easeInOut' }}
-      />
-      <motion.div
-        className="app-orb app-orb--success"
-        animate={{ y: [0, -10, 0], x: [0, 8, 0] }}
-        transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }}
-      />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(108,99,255,0.12),transparent_32%),radial-gradient(circle_at_top_right,rgba(0,212,255,0.08),transparent_28%),linear-gradient(180deg,rgba(11,16,32,0.16),rgba(11,16,32,0.82))]" />
+      {isDark && (
+        <div className="absolute left-1/2 top-0 h-[480px] w-[720px] -translate-x-1/2 rounded-full bg-primary/5 blur-3xl" />
+      )}
     </div>
   );
 };

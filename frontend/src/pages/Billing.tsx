@@ -1,38 +1,42 @@
 import React from 'react';
 import { DashboardLayout } from '@/components/layout';
+import { PageHeader } from '@/components/ui';
 import CostSummaryCards from '@/components/billing/CostSummaryCards';
 import CostBreakdownChart from '@/components/billing/CostBreakdownChart';
 import CostPredictionChart from '@/components/billing/CostPredictionChart';
 import CostSuggestions from '@/components/billing/CostSuggestions';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-export default function BillingPage(){
+export default function BillingPage() {
   return (
     <DashboardLayout>
-      <main className="space-y-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-6">
-            <h1 className="text-3xl font-bold text-white">Billing & Cost Analysis</h1>
-            <p className="text-white/60">AWS cost breakdown, trends, and optimization opportunities.</p>
-          </div>
+      <PageHeader
+        title="Billing & Cost Analysis"
+        description="AWS cost breakdown, trends, and optimization opportunities."
+      />
 
-          <CostSummaryCards />
+      <CostSummaryCards />
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 space-y-4">
-              <CostBreakdownChart />
-              <CostPredictionChart />
-            </div>
-
-            <div className="space-y-4">
-              <CostSuggestions />
-              <div className="backdrop-blur-md bg-[rgba(12,16,26,0.6)] border border-white/6 rounded-xl p-4">
-                <h3 className="text-sm font-semibold text-white mb-2">Usage Analytics</h3>
-                <div className="text-sm text-white/70">Top services by spend, hourly usage, and anomalous billing events will appear here.</div>
-              </div>
-            </div>
-          </div>
+      <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <CostBreakdownChart />
+          <CostPredictionChart />
         </div>
-      </main>
+
+        <div className="space-y-6">
+          <CostSuggestions />
+          <Card className="border-border/60 bg-card/80">
+            <CardHeader>
+              <CardTitle className="text-sm">Usage Analytics</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Top services by spend, hourly usage, and anomalous billing events will appear here.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </DashboardLayout>
   );
 }

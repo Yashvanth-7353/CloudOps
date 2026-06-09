@@ -1,51 +1,55 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from './Sidebar';
 import TopNavbar from './TopNavbar';
-import { motion, AnimatePresence } from 'framer-motion';
 
-const DashboardLayout: React.FC<{
-  children: React.ReactNode;
-}> = ({ children }) => {
+const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="relative flex min-h-screen bg-gradient-to-br from-[#05060b] to-[#071026] text-white">
-      {/* Desktop sidebar */}
-      <div className="hidden lg:flex">
+    <div className="relative flex min-h-screen bg-background text-foreground">
+      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-20 lg:flex">
         <Sidebar collapsed={collapsed} onCollapse={setCollapsed} />
       </div>
 
-      {/* Mobile sidebar overlay */}
       <AnimatePresence>
         {mobileOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 lg:hidden"
-          >
-            <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm lg:hidden"
+              onClick={() => setMobileOpen(false)}
+            />
             <motion.div
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
               exit={{ x: '-100%' }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="absolute left-0 top-0 bottom-0 w-72"
+              transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+              className="fixed inset-y-0 left-0 z-50 lg:hidden"
             >
-              <Sidebar onCollapse={() => setMobileOpen(false)} />
+              <Sidebar mobile onCollapse={() => setMobileOpen(false)} />
             </motion.div>
-          </motion.div>
+          </>
         )}
       </AnimatePresence>
 
-      <div className="flex-1 flex flex-col">
+      <div
+        className="flex min-h-screen flex-1 flex-col transition-[margin] duration-base lg:ml-[var(--sidebar-width,260px)]"
+        style={{ '--sidebar-width': collapsed ? '72px' : '260px' } as React.CSSProperties}
+      >
         <TopNavbar onToggleMobileSidebar={() => setMobileOpen(true)} />
-
         <main className="flex-1 overflow-auto">
-          <div className="page-shell page-shell--wide">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.2 }}
+            className="page-shell page-shell--wide"
+          >
             {children}
-          </div>
+          </motion.div>
         </main>
       </div>
     </div>
