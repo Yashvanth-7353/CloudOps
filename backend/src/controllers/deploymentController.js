@@ -2,6 +2,8 @@ const jwt = require('jsonwebtoken');
 const Project = require('../models/Project');
 const gitService = require('../services/gitService');
 const deploymentEngine = require('../services/deploymentEngineService');
+const frameworkDetector = require('../services/frameworkDetector');
+const staticBuildService = require('../services/staticBuildService');
 const fs = require('fs');
 const path = require('path');
 
@@ -94,12 +96,13 @@ const initDeploy = async (req, res) => {
         const project = await Project.findOne({ repositoryName, repositoryOwner, userId });
         if (!project) return res.status(404).json({ error: 'Project must be connected before deploying.' });
 
-        // 1. Clone the repository
-        const clonePath = await gitService.cloneRepository(project.repositoryUrl);
+        const clonePath = await gitService.cloneRepository(project.repositoryUrl, {
+            githubToken: decoded.githubToken,
+        });
 
-        // 2. Check for Dockerfile & Get File Tree
         const hasDockerfile = await gitService.checkFileExists(clonePath, 'Dockerfile');
         const fileTree = getDirectoryTree(clonePath);
+        const suggestedRoots = await frameworkDetector.suggestRootDirectories(clonePath);
 
         res.status(200).json({
             success: true,
@@ -109,7 +112,9 @@ const initDeploy = async (req, res) => {
             repositoryOwner: project.repositoryOwner,
             clonePath,
             hasDockerfile,
-            fileTree, // <-- Sending the folder structure to the frontend!
+            fileTree,
+            suggestedRoots,
+            defaultBranch: project.defaultBranch || 'main',
             message: 'Repository cloned successfully.'
         });
 
@@ -119,19 +124,136 @@ const initDeploy = async (req, res) => {
     }
 };
 
+const detectFramework = async (req, res) => {
+    try {
+        const { clonePath, rootDirectory = './' } = req.body;
+
+        if (!clonePath) return res.status(400).json({ error: 'Clone path is required.' });
+
+        const normalizedRoot = rootDirectory === '/' || rootDirectory === '' ? './' : rootDirectory;
+        const detection = await frameworkDetector.detectFramework(clonePath, {
+            rootDirectory: normalizedRoot,
+            mode: 'static',
+        });
+
+        res.status(200).json({
+            success: true,
+            ...detection,
+        });
+    } catch (error) {
+        console.error('Detect Framework Error:', error);
+        res.status(500).json({ error: error.message || 'Failed to detect framework.' });
+    }
+};
+
 const saveDeploymentFiles = async (req, res) => {
     try {
-        // This endpoint is deprecated - users should commit files to their repository instead
-        return res.status(200).json({ 
-            success: true, 
+        const { clonePath, envContent, envPath, rootDirectory, deployType } = req.body;
+
+        if (deployType === 'static') {
+            if (!clonePath) return res.status(400).json({ error: 'Clone path is required.' });
+
+            const targetPath = rootDirectory && rootDirectory !== './'
+                ? path.join(clonePath, rootDirectory.replace(/^\.\//, ''))
+                : clonePath;
+
+            if (envContent && envContent.trim() !== '') {
+                const finalEnvPath = envPath || '.env';
+                await gitService.writeFile(targetPath, finalEnvPath, envContent);
+            }
+
+            return res.status(200).json({ success: true, message: 'Configuration saved.' });
+        }
+
+        return res.status(200).json({
+            success: true,
             message: 'Please commit your Dockerfile to your Git repository. Deployment will use the Dockerfile from your repo.',
-            note: 'User-provided files during preview are no longer supported. Ensure your repo has a Dockerfile at the root.'
+            note: 'User-provided files during preview are no longer supported. Ensure your repo has a Dockerfile at the root.',
         });
     } catch (error) {
         console.error('Save Files Error:', error);
         res.status(500).json({ error: 'Failed to save configuration files.' });
     }
-}
+};
+
+const startStaticBuild = async (req, res) => {
+    const {
+        repositoryName,
+        clonePath,
+        rootDirectory = './',
+        buildCommand,
+        outputDirectory,
+        environmentVariables = {},
+    } = req.body;
+
+    const io = req.app.get('io');
+
+    if (!clonePath || !repositoryName) {
+        return res.status(400).json({ error: 'clonePath and repositoryName are required.' });
+    }
+
+    res.status(200).json({ message: 'Static build started' });
+
+    const roomName = repositoryName;
+    const sendLog = (text, type = 'info') => {
+        io.to(roomName).emit('build-log', { text, type, timestamp: new Date().toISOString() });
+    };
+
+    const projectPath = rootDirectory && rootDirectory !== './'
+        ? path.join(clonePath, rootDirectory.replace(/^\.\//, ''))
+        : clonePath;
+
+    try {
+        sendLog('Starting static frontend deployment...', 'system');
+        sendLog(`Project directory: ${rootDirectory || './'}`, 'info');
+        sendLog('Building and publishing dist files to S3.', 'system');
+
+        const detection = await frameworkDetector.detectFramework(clonePath, {
+            rootDirectory,
+            mode: 'static',
+        });
+        const finalBuildCommand = buildCommand || detection.buildCommand;
+        const finalOutputDir = outputDirectory || detection.outputDirectory;
+
+        if (!finalBuildCommand || finalBuildCommand.includes('No build needed')) {
+            sendLog('Skipping build step and publishing existing static output.', 'system');
+        } else {
+            await staticBuildService.buildProject({
+                projectPath,
+                buildCommand: finalBuildCommand,
+                environmentVariables,
+                onLog: sendLog,
+            });
+        }
+
+        sendLog('Publishing static assets to S3...', 'system');
+        const siteSlug = staticBuildService.generateSiteSlug(repositoryName);
+        const publicUrl = await staticBuildService.deployStaticToS3({
+            projectPath,
+            outputDirectory: finalOutputDir,
+            siteSlug,
+            onLog: sendLog,
+        });
+
+        const publicIp = await staticBuildService.resolvePublicIp(publicUrl);
+
+        sendLog('Deployment complete!', 'success');
+        sendLog(`Live URL: ${publicUrl}`, 'success');
+        sendLog(`Public IP: ${publicIp || 'Unavailable'}`, 'success');
+
+        io.to(roomName).emit('build-complete', {
+            status: 'success',
+            publicUrl,
+            publicIp,
+            siteSlug,
+            deployType: 'static',
+        });
+    } catch (error) {
+        console.error('Static Build Error:', error);
+        sendLog(`Deployment failed: ${error.message}`, 'error');
+        io.to(roomName).emit('build-complete', { status: 'failed', error: error.message });
+    }
+};
 
 const startBuild = async (req, res) => {
     const io = req.app.get('io');
@@ -428,8 +550,10 @@ const startAWSEC2Deployment = async (req, res) => {
 
 module.exports = {
     initDeploy,
+    detectFramework,
     saveDeploymentFiles,
     startBuild,
+    startStaticBuild,
     startAWSEC2Deployment,
     getDeploymentStatus,
     getDeploymentLogs,

@@ -36,3 +36,7 @@ coverage/
 # Temporary files
 tmp/
 temp/
+
+# Cloned repos during static builds (keep directory placeholder)
+public/sites/*
+!public/sites/.gitkeep

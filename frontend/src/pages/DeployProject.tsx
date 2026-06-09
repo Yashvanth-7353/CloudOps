@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Loader2, Folder, File, ArrowLeft, CheckCircle2, Cloud, Server, Box } from 'lucide-react';
-import { deploymentService } from '../services/deployment-service';
+import { Loader2, Folder, File, ArrowLeft, CheckCircle2, Cloud, Server, Box, Globe, ExternalLink } from 'lucide-react';
+import { deploymentService, type SuggestedRoot } from '../services/deployment-service';
+import StaticDeployPanel from '@/components/deployments/StaticDeployPanel';
 import { io, Socket } from 'socket.io-client';
 
-// Type for the file tree
 type FileNode = { name: string; type: 'file' | 'directory'; children?: FileNode[] };
+
+const DEPLOYED_PROJECTS_KEY = 'cloudops_deployed_projects';
 
 export default function DeployProject() {
   const { owner, repo } = useParams<{ owner: string, repo: string }>();
@@ -15,17 +17,19 @@ export default function DeployProject() {
   const socketRef = useRef<Socket | null>(null);
 
   // Process States
-  const [step, setStep] = useState<'cloning' | 'type' | 'env' | 'dockerfile' | 'aws' | 'azure' | 'deploying' | 'complete'>('cloning');
+  const [step, setStep] = useState<'cloning' | 'type' | 'env' | 'dockerfile' | 'aws' | 'azure' | 's3-folder' | 's3-framework' | 's3-env' | 'deploying' | 'complete'>('cloning');
   const [clonePath, setClonePath] = useState('');
   const [hasDockerfile, setHasDockerfile] = useState(true);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
+  const [suggestedRoots, setSuggestedRoots] = useState<SuggestedRoot[]>([]);
+  const [publicUrl, setPublicUrl] = useState('');
   const [projectId, setProjectId] = useState('');
   const [repositoryOwner, setRepositoryOwner] = useState('');
   const [repositoryUrl, setRepositoryUrl] = useState('');
   const [activeDeploymentId, setActiveDeploymentId] = useState('');
 
   // Deployment Type
-  const [deploymentType, setDeploymentType] = useState<'local' | 'aws' | 'azure'>('local');
+  const [deploymentType, setDeploymentType] = useState<'local' | 'aws' | 'azure' | 's3-static'>('local');
 
   // Form States - Local
   const [envPath, setEnvPath] = useState('.env');
@@ -51,6 +55,27 @@ export default function DeployProject() {
 
   useEffect(() => { logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs]);
 
+  const saveDeployedProject = (url: string) => {
+    if (!owner || !repo) return;
+    try {
+      const raw = localStorage.getItem(DEPLOYED_PROJECTS_KEY);
+      const existing = raw ? JSON.parse(raw) : [];
+      const project = {
+        id: `${owner}/${repo}`,
+        name: repo,
+        fullName: `${owner}/${repo}`,
+        language: 'Frontend (S3)',
+        deployedAt: new Date().toISOString(),
+        liveUrl: url,
+      };
+      const updated = [project, ...existing.filter((p: { id: string }) => p.id !== project.id)];
+      localStorage.setItem(DEPLOYED_PROJECTS_KEY, JSON.stringify(updated));
+      window.dispatchEvent(new Event('cloudops:deployed-projects-updated'));
+    } catch {
+      // ignore
+    }
+  };
+
   // 1. Initial Clone & Fetch Tree
   useEffect(() => {
     if (!owner || !repo) return;
@@ -62,6 +87,7 @@ export default function DeployProject() {
         setClonePath(result.clonePath);
         setHasDockerfile(result.hasDockerfile);
         setFileTree(result.fileTree || []);
+        setSuggestedRoots(result.suggestedRoots || [{ path: './', label: 'Root (./)', hasPackageJson: false }]);
         setProjectId(result.projectId);
         setRepositoryOwner(result.repositoryOwner);
         setRepositoryUrl(result.repositoryUrl || `https://github.com/${owner}/${repo}.git`);
@@ -126,10 +152,16 @@ export default function DeployProject() {
       addLog(data.text, data.type);
     });
 
-    socket.on('build-complete', () => {
+    socket.on('build-complete', (data?: { status?: string; publicUrl?: string }) => {
+      if (deploymentType === 's3-static' && data?.status === 'success' && data.publicUrl) {
+        setPublicUrl(data.publicUrl);
+        saveDeployedProject(data.publicUrl);
+        setStep('complete');
+        return;
+      }
+
       setStep('complete');
-      
-      // Navigate to deployment page for local builds if we have a deployment ID
+
       if (activeDeploymentId) {
         setTimeout(() => {
           navigate(`/deployments/${encodeURIComponent(activeDeploymentId)}`);
@@ -234,7 +266,12 @@ export default function DeployProject() {
       }
     } catch (err: any) {
       addLog(`❌ Error: ${err.message}`, 'error');
-      const stepMap = { aws: 'aws', azure: 'azure', local: 'env' };
+      const stepMap: Record<string, typeof step> = {
+        aws: 'aws',
+        azure: 'azure',
+        local: 'env',
+        's3-static': 's3-env',
+      };
       setStep(stepMap[deploymentType] || 'env');
     }
   };
@@ -273,7 +310,7 @@ export default function DeployProject() {
           </div>
 
           {/* Configuration Form */}
-          {(step === 'type' || step === 'env' || step === 'dockerfile' || step === 'aws' || step === 'azure') && (
+          {(step === 'type' || step === 'env' || step === 'dockerfile' || step === 'aws' || step === 'azure' || step === 's3-folder' || step === 's3-framework' || step === 's3-env') && (
             <div className="bg-[rgba(12,16,26,0.6)] border border-white/10 rounded-xl p-5 backdrop-blur-md shrink-0 max-h-[50vh] overflow-y-auto">
               {/* Deployment Type Selection */}
               {step === 'type' && (
@@ -310,11 +347,22 @@ export default function DeployProject() {
                     >
                       <Box className="w-4 h-4" /> Azure ACI
                     </button>
+                    <button
+                      onClick={() => { setDeploymentType('s3-static'); setStep('s3-folder'); }}
+                      className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 p-3 rounded-lg font-medium transition ${
+                        deploymentType === 's3-static'
+                          ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
+                          : 'bg-black/40 text-white/60 border border-white/10 hover:border-white/30'
+                      }`}
+                    >
+                      <Globe className="w-4 h-4" /> S3 Static
+                    </button>
                   </div>
                   <p className="text-xs text-white/50 mb-4">
                     <strong>Local:</strong> Runs on this server (localhost:4002+)<br/>
                     <strong>AWS:</strong> Runs on EC2 with public IP<br/>
-                    <strong>Azure:</strong> Runs on Container Instances
+                    <strong>Azure:</strong> Runs on Container Instances<br/>
+                    <strong>S3 Static:</strong> Build frontend and upload to S3 (no Docker)
                   </p>
                 </>
               )}
@@ -384,6 +432,26 @@ export default function DeployProject() {
                 </>
               )}
 
+              {/* S3 Static Deployment */}
+              {deploymentType === 's3-static' && ['s3-folder', 's3-framework', 's3-env'].includes(step) && owner && repo && (
+                <StaticDeployPanel
+                  clonePath={clonePath}
+                  fileTree={fileTree}
+                  suggestedRoots={suggestedRoots}
+                  repo={repo}
+                  step={step as 's3-folder' | 's3-framework' | 's3-env'}
+                  setStep={setStep}
+                  onDeploying={() => setStep('deploying')}
+                  onComplete={(url) => {
+                    setPublicUrl(url);
+                    saveDeployedProject(url);
+                    setStep('complete');
+                  }}
+                  addLog={addLog}
+                  socketRef={socketRef}
+                />
+              )}
+
               {/* Azure Deployment Configuration */}
               {step === 'azure' && deploymentType === 'azure' && (
                 <>
@@ -426,16 +494,29 @@ export default function DeployProject() {
                 {step === 'cloning' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Clone
               </div>
               <div className="w-4 h-[1px] bg-white/20" />
-              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${step === 'cloning' ? 'text-white/30' : ['type', 'env', 'dockerfile', 'aws', 'azure', 'deploying', 'complete'].includes(step) ? 'text-emerald-400' : 'text-cyan-400'}`}>
-                {step === 'cloning' ? <div className="w-4 h-4 rounded-full border border-white/30" /> : ['type', 'env', 'dockerfile', 'aws', 'azure', 'deploying', 'complete'].includes(step) ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Config
+              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${step === 'cloning' ? 'text-white/30' : ['type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env', 'deploying', 'complete'].includes(step) ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                {step === 'cloning' ? <div className="w-4 h-4 rounded-full border border-white/30" /> : ['type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env', 'deploying', 'complete'].includes(step) ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Config
               </div>
               <div className="w-4 h-[1px] bg-white/20" />
-              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${['cloning', 'type', 'env', 'dockerfile', 'aws', 'azure'].includes(step) ? 'text-white/30' : step === 'complete' ? 'text-emerald-400' : 'text-cyan-400'}`}>
-                {['cloning', 'type', 'env', 'dockerfile', 'aws', 'azure'].includes(step) ? <div className="w-4 h-4 rounded-full border border-white/30" /> : step === 'complete' ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Deploy
+              <div className={`flex items-center gap-2 text-xs whitespace-nowrap ${['cloning', 'type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env'].includes(step) ? 'text-white/30' : step === 'complete' ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                {['cloning', 'type', 'env', 'dockerfile', 'aws', 'azure', 's3-folder', 's3-framework', 's3-env'].includes(step) ? <div className="w-4 h-4 rounded-full border border-white/30" /> : step === 'complete' ? <CheckCircle2 className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />} Deploy
               </div>
             </div>
             {step === 'complete' && (
-              <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-xs font-bold animate-pulse ml-4">LIVE</span>
+              <div className="flex items-center gap-3 ml-4">
+                <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-xs font-bold animate-pulse">LIVE</span>
+                {deploymentType === 's3-static' && publicUrl && (
+                  <a
+                    href={publicUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 text-xs text-emerald-300 hover:underline"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Open S3 site
+                  </a>
+                )}
+              </div>
             )}
           </div>
           

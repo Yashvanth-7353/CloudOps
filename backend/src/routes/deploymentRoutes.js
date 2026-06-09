@@ -5,12 +5,18 @@ const deploymentController = require('../controllers/deploymentController');
 // 1. Clones the repo
 router.post('/init', deploymentController.initDeploy);
 
-// 2. Saves the .env and Dockerfile
+// 2. Detects framework for static S3 deployment
+router.post('/detect', deploymentController.detectFramework);
+
+// 3. Saves the .env and Dockerfile
 router.post('/save-files', deploymentController.saveDeploymentFiles);
 
-// 3. Starts the real deployment engine
+// 4. Starts the Docker deployment engine
 router.post('/start', deploymentController.startBuild);
 router.post('/start-build', deploymentController.startBuild);
+
+// 5. Starts static build and S3 upload (streams logs via socket)
+router.post('/start-static-build', deploymentController.startStaticBuild);
 
 // 4. AWS EC2 Deployment
 router.post('/aws-ec2', deploymentController.startAWSEC2Deployment);

@@ -5,6 +5,13 @@ const fssync = require('fs');
 const crypto = require('crypto');
 
 class GitService {
+    buildAuthenticatedUrl(repoUrl, githubToken) {
+        if (!githubToken || !repoUrl.startsWith('https://github.com/')) {
+            return repoUrl;
+        }
+        return repoUrl.replace('https://github.com/', `https://x-access-token:${githubToken}@github.com/`);
+    }
+
     async cloneRepository(repoUrl, targetPathOrOptions = {}, maybeOptions = {}) {
         let clonePath = null;
         let options = maybeOptions;
@@ -19,7 +26,10 @@ class GitService {
             branch = null,
             depth = 1,
             maxRetries = 3,
+            githubToken = null,
         } = options;
+
+        const cloneUrl = this.buildAuthenticatedUrl(repoUrl, githubToken);
 
         if (!clonePath) {
             const tempDirName = crypto.randomBytes(16).toString('hex');
@@ -49,7 +59,7 @@ class GitService {
                     args.push('--branch', selectedBranch);
                 }
 
-                await git.clone(repoUrl, clonePath, args);
+                await git.clone(cloneUrl, clonePath, args);
                 return clonePath;
             } catch (error) {
                 lastError = error;

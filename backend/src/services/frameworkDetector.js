@@ -85,15 +85,224 @@ class FrameworkDetector {
     };
   }
 
+  async detectFrontendPreset(repoPath) {
+    try {
+      const pkgPath = path.join(repoPath, 'package.json');
+      const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8'));
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+      const scripts = pkg.scripts || {};
+      const defaultBuild = scripts.build ? 'npm run build' : 'npm run build';
+
+      const presets = [
+        { name: 'vite', check: () => deps.vite, output: 'dist', build: defaultBuild },
+        { name: 'nextjs', check: () => deps.next, output: 'out', build: defaultBuild },
+        { name: 'create-react-app', check: () => deps['react-scripts'], output: 'build', build: defaultBuild },
+        { name: 'angular', check: () => deps['@angular/core'], output: 'dist', build: defaultBuild },
+        { name: 'vue', check: () => deps.vue && !deps.nuxt, output: 'dist', build: defaultBuild },
+        { name: 'nuxt', check: () => deps.nuxt, output: '.output/public', build: defaultBuild },
+        { name: 'svelte', check: () => deps['@sveltejs/kit'] || deps.svelte, output: 'build', build: defaultBuild },
+        { name: 'astro', check: () => deps.astro, output: 'dist', build: defaultBuild },
+      ];
+
+      for (const preset of presets) {
+        if (preset.check()) {
+          return {
+            preset: preset.name,
+            buildCommand: preset.build,
+            outputDirectory: preset.output,
+            deployType: 'static',
+            displayName: this.getPresetDisplayName(preset.name),
+          };
+        }
+      }
+
+      if (scripts.build) {
+        return {
+          preset: 'nodejs',
+          buildCommand: scripts.build.startsWith('npm') ? scripts.build : 'npm run build',
+          outputDirectory: 'dist',
+          deployType: 'static',
+          displayName: 'Node.js',
+        };
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  getPresetDisplayName(preset) {
+    const names = {
+      vite: 'Vite',
+      nextjs: 'Next.js',
+      'create-react-app': 'Create React App',
+      angular: 'Angular',
+      vue: 'Vue.js',
+      nuxt: 'Nuxt.js',
+      svelte: 'SvelteKit',
+      astro: 'Astro',
+      nodejs: 'Node.js',
+      static: 'Static HTML',
+    };
+    return names[preset] || preset;
+  }
+
+  async getSuggestedEnvVars(repoPath) {
+    const candidates = ['.env.example', '.env.local.example', '.env.sample', 'env.example'];
+    const suggested = [];
+
+    for (const file of candidates) {
+      try {
+        const content = await fs.readFile(path.join(repoPath, file), 'utf-8');
+        const lines = content.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const eqIndex = trimmed.indexOf('=');
+          if (eqIndex > 0) {
+            const key = trimmed.slice(0, eqIndex).trim();
+            const value = trimmed.slice(eqIndex + 1).trim();
+            if (key && !suggested.some((s) => s.key === key)) {
+              suggested.push({
+                key,
+                value: value || '',
+                isPublic: key.startsWith('VITE_') || key.startsWith('NEXT_PUBLIC_') || key.startsWith('REACT_APP_'),
+              });
+            }
+          }
+        }
+        if (suggested.length > 0) break;
+      } catch {
+        // continue
+      }
+    }
+
+    return suggested;
+  }
+
+  async suggestRootDirectories(repoPath, maxDepth = 2) {
+    const suggestions = [];
+
+    const scan = async (dir, relativePath, depth) => {
+      if (depth > maxDepth) return;
+
+      const hasPackageJson = await this.checkFramework(dir, ['package.json']);
+      const hasIndexHtml = await this.checkFramework(dir, ['index.html']);
+
+      if (hasPackageJson || hasIndexHtml) {
+        suggestions.push({
+          path: relativePath || './',
+          label: relativePath || 'Root (./)',
+          hasPackageJson,
+        });
+      }
+
+      if (depth < maxDepth) {
+        try {
+          const entries = await fs.readdir(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+            if (['node_modules', '.git', 'dist', 'build', '.next', 'coverage'].includes(entry.name)) continue;
+            const childPath = path.join(dir, entry.name);
+            const childRelative = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+            await scan(childPath, childRelative, depth + 1);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    await scan(repoPath, '', 0);
+    return suggestions.length > 0 ? suggestions : [{ path: './', label: 'Root (./)', hasPackageJson: false }];
+  }
+
   /**
    * Detect framework from repository structure
    * @param {string} repoPath - Path to repository
+   * @param {Object} options - { rootDirectory?: string, mode?: 'static' | 'docker' }
    * @returns {Promise<Object>} Detected framework info
    */
-  async detectFramework(repoPath) {
+  async detectFramework(repoPath, options = {}) {
+    const isStaticMode = options.mode === 'static' || options.rootDirectory != null;
+    if (isStaticMode) {
+      return this.detectStaticFramework(repoPath, options);
+    }
+    return this.detectDockerFramework(repoPath);
+  }
+
+  async detectStaticFramework(repoPath, options = {}) {
+    try {
+      const rootDirectory = options.rootDirectory || '';
+      const targetPath = rootDirectory && rootDirectory !== './'
+        ? path.join(repoPath, rootDirectory.replace(/^\.\//, ''))
+        : repoPath;
+
+      const detected = {
+        framework: 'static',
+        preset: 'static',
+        displayName: 'Static HTML',
+        version: 'latest',
+        buildCommand: null,
+        installCommand: 'npm install',
+        outputDirectory: 'dist',
+        deployType: 'static',
+        startCommand: 'echo "Static site"',
+        port: 80,
+        packageManager: 'npm',
+        confidence: 0,
+        details: {},
+        suggestedEnvVars: [],
+        rootDirectory: rootDirectory || './',
+      };
+
+      const preset = await this.detectFrontendPreset(targetPath);
+      if (preset) {
+        detected.framework = 'nodejs';
+        detected.preset = preset.preset;
+        detected.displayName = preset.displayName;
+        detected.buildCommand = preset.buildCommand;
+        detected.outputDirectory = preset.outputDirectory;
+        detected.deployType = preset.deployType;
+        detected.confidence = 1;
+        detected.details = await this.getFrameworkDetails(targetPath, 'nodejs');
+        detected.suggestedEnvVars = await this.getSuggestedEnvVars(targetPath);
+        return detected;
+      }
+
+      for (const [frameworkName, config] of Object.entries(this.frameworks)) {
+        const found = await this.checkFramework(targetPath, config.indicators);
+
+        if (found) {
+          detected.framework = frameworkName;
+          detected.preset = frameworkName;
+          detected.displayName = this.getPresetDisplayName(frameworkName);
+          detected.version = await this.getVersion(targetPath, frameworkName);
+          detected.buildCommand = config.buildCommand;
+          detected.startCommand = config.startCommand;
+          detected.port = config.port;
+          detected.packageManager = config.packageManager;
+          detected.deployType = frameworkName === 'static' ? 'static' : 'container';
+          detected.outputDirectory = frameworkName === 'static' ? '.' : 'dist';
+          detected.confidence = 1;
+          detected.details = await this.getFrameworkDetails(targetPath, frameworkName);
+          detected.suggestedEnvVars = await this.getSuggestedEnvVars(targetPath);
+          break;
+        }
+      }
+
+      return detected;
+    } catch (error) {
+      console.error('Framework detection error:', error);
+      throw new Error(`Failed to detect framework: ${error.message}`);
+    }
+  }
+
+  async detectDockerFramework(repoPath) {
     try {
       const detected = {
-        framework: 'static', // default
+        framework: 'static',
         version: 'latest',
         buildCommand: 'echo "No build needed"',
         startCommand: 'echo "Static site"',
@@ -103,7 +312,6 @@ class FrameworkDetector {
         details: {},
       };
 
-      // Check each framework
       for (const [frameworkName, config] of Object.entries(this.frameworks)) {
         const found = await this.checkFramework(repoPath, config.indicators);
 

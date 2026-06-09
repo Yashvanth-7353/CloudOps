@@ -60,7 +60,7 @@ const DeploymentSchema = new mongoose.Schema(
     // Deployment service type (AWS or Azure)
     deploymentService: {
       type: String,
-      enum: ['local', 'aws', 'azure'],
+      enum: ['local', 'aws', 'azure', 's3-static'],
       default: 'aws',
       index: true,
     },
@@ -73,7 +73,13 @@ const DeploymentSchema = new mongoose.Schema(
       },
       targetType: {
         type: String,
-        enum: ['local', 'ssh', 'aws', 'azure'],
+        enum: ['local', 'ssh', 'aws', 'azure', 's3-static'],
+      },
+      s3: {
+        bucket: String,
+        prefix: String,
+        siteSlug: String,
+        websiteUrl: String,
       },
       region: String,
       target: mongoose.Schema.Types.Mixed,
