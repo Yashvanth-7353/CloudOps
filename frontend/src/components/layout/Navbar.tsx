@@ -1,380 +1,143 @@
-/**
- * Navbar Component
- * Modern SaaS navbar with glassmorphism, animations, and mobile support
- */
-
 import React, { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Github, ChevronDown, Sun, Moon } from 'lucide-react';
+import { Menu, X, Github, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
-import { useToast } from '@/components/ui/ToastProvider';
 import { useAuth } from '@/app/providers/auth-provider';
-import { COLORS } from '@/lib/constants';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import Logo from './Logo';
-import './Navbar.css';
 
-interface NavLink {
-  label: string;
-  href: string;
-  icon?: React.ReactNode;
-  submenu?: NavLink[];
-}
-
-const navLinks: NavLink[] = [
-  { label: 'Features', href: '#features' },
-  { label: 'Deployments', href: '/deployments' },
-  { label: 'Pricing', href: '/pricing' },
+const navLinks = [
+  { label: 'Features', href: '/#features' },
+  { label: 'How it works', href: '/#how-it-works' },
   { label: 'Docs', href: '/docs' },
 ];
 
 const Navbar: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
-  const { notify } = useToast();
   const { isAuthenticated, logout, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const showMobileMenuToggle = location.pathname !== '/';
 
-  const userName = user?.username || user?.name || user?.login || 'User';
-  const userInitial = userName?.[0]?.toUpperCase() || 'U';
-
-  const handleLogout = () => {
-    setUserMenuOpen(false);
-    logout();
-    navigate('/login');
-  };
-
-  const handleProfile = () => {
-    setUserMenuOpen(false);
-    navigate('/settings?tab=profile');
-  };
-
-  const handleDashboard = () => {
-    setUserMenuOpen(false);
-    navigate('/dashboard');
-  };
-
-  const handleThemeToggle = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    toggleTheme();
-    notify({
-      variant: 'info',
-      title: `${nextTheme === 'dark' ? 'Dark' : 'Light'} mode enabled`,
-      message: `Switched to ${nextTheme} theme.`,
-    });
-  };
-
-  // Handle scroll effect
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 10);
-    };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Close mobile menu on link click
-  const handleNavClick = () => {
-    setIsOpen(false);
-    setActiveDropdown(null);
-  };
+  useEffect(() => {
+    setOpen(false);
+  }, [location.pathname]);
 
-  // Close user menu when clicking outside
-  React.useEffect(() => {
-    if (!userMenuOpen) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('[aria-haspopup="menu"]') && !target.closest('[role="menu"]')) {
-        setUserMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, [userMenuOpen]);
-
-  const isActiveNavLink = (href: string) => {
-    if (href.startsWith('/')) {
-      if (href === '/') return location.pathname === '/';
-      return location.pathname === href;
-    }
-
-    if (href.startsWith('#')) {
-      return location.pathname === '/' && location.hash === href;
-    }
-
-    return false;
-  };
+  const userName = user?.username || user?.name || user?.login || 'User';
 
   return (
     <>
-      {/* Navbar Container */}
-      <motion.nav
-        className={`fixed top-0 left-0 right-0 z-[1030] navbar ${
-          scrolled ? 'navbar-scrolled' : ''
-        }`}
-        style={{
-          backgroundColor: scrolled
-            ? 'rgba(11, 16, 32, 0.7)'
-            : 'rgba(11, 16, 32, 0.4)',
-          backdropFilter: scrolled ? 'blur(12px)' : 'blur(6px)',
-        }}
+      <header
+        className={cn(
+          'fixed inset-x-0 top-0 z-50 border-b transition-all duration-base',
+          scrolled
+            ? 'border-border bg-background/90 backdrop-blur-md shadow-sm'
+            : 'border-transparent bg-transparent'
+        )}
       >
-        <div className="container-fluid">
-          <div className="navbar-content">
-            {/* Logo */}
-            <motion.div
-              className="navbar-logo"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <Logo />
-            </motion.div>
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+          <Logo />
 
-            {/* Desktop Navigation */}
-            <div className="navbar-links-desktop">
-              {navLinks.map((link) => (
-                <motion.div
-                  key={link.label}
-                  className="nav-item-wrapper"
-                  onHoverStart={() => setActiveDropdown(link.label)}
-                  onHoverEnd={() => setActiveDropdown(null)}
-                >
-                  <a
-                    href={link.href}
-                    className={`nav-link ${isActiveNavLink(link.href) ? 'nav-link-active' : ''}`}
-                    onClick={handleNavClick}
-                  >
-                    <span>{link.label}</span>
-                    {link.submenu && (
-                      <ChevronDown size={16} className="nav-chevron" />
-                    )}
-                  </a>
-
-                  {/* Animated underline */}
-                  {isActiveNavLink(link.href) && (
-                    <motion.div
-                      className="nav-underline nav-underline-active"
-                      layoutId="active-navbar-underline"
-                      initial={false}
-                    />
-                  )}
-                </motion.div>
-              ))}
-            </div>
-
-            {/* Right Side Actions */}
-            <div className="navbar-actions">
-              <motion.button
-                type="button"
-                className="theme-toggle-btn"
-                onClick={handleThemeToggle}
-                aria-label="Toggle dark mode"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+          <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
+            {navLinks.map((link) => (
+              <a
+                key={link.label}
+                href={link.href}
+                className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
               >
-                {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-              </motion.button>
+                {link.label}
+              </a>
+            ))}
+          </nav>
 
-              {/* Auth action buttons */}
-              {isAuthenticated ? (
-                <div className="hidden md:flex items-center gap-3 relative">
-                  <button
-                    type="button"
-                    onClick={() => setUserMenuOpen((value) => !value)}
-                    className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/90 hover:bg-white/10 transition"
-                    aria-haspopup="menu"
-                    aria-expanded={userMenuOpen}
-                    aria-label="Open user menu"
-                  >
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-tr from-primary to-accent text-xs font-semibold">
-                      {userInitial}
-                    </span>
-                    {userName}
-                    <ChevronDown className={`w-4 h-4 transition ${userMenuOpen ? 'rotate-180' : ''}`} />
-                  </button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            >
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
 
-                  <AnimatePresence>
-                    {userMenuOpen && (
-                      <motion.div
-                        role="menu"
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.18 }}
-                        className="absolute right-0 top-[calc(100%+10px)] w-44 bg-[rgba(12,16,26,0.9)] border border-white/10 backdrop-blur-md rounded-lg shadow-lg overflow-hidden z-[9999]"
-                        style={{ pointerEvents: 'auto' }}
-                      >
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleProfile();
-                          }}
-                          className="w-full text-left px-4 py-3 text-sm text-white/90 hover:bg-white/10 transition-colors cursor-pointer"
-                        >
-                          Profile
-                        </button>
-                        <div className="border-t border-white/5" />
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDashboard();
-                          }}
-                          className="w-full text-left px-4 py-3 text-sm text-white/90 hover:bg-white/10 transition-colors cursor-pointer"
-                        >
-                          Dashboard
-                        </button>
-                        <div className="border-t border-white/5" />
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleLogout();
-                          }}
-                          className="w-full text-left px-4 py-3 text-sm text-rose-300 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                        >
-                          Sign out
-                        </button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              ) : (
-                <motion.button
-                  type="button"
-                  onClick={() => navigate('/login')}
-                  className="btn btn-secondary gap-md hidden md:flex"
-                  aria-label="Sign in"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Github size={18} />
-                  <span>Sign in</span>
-                </motion.button>
-              )}
+            {isAuthenticated ? (
+              <>
+                <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => navigate('/dashboard')}>
+                  Dashboard
+                </Button>
+                <Button variant="outline" size="sm" className="hidden sm:inline-flex" onClick={() => { logout(); navigate('/login'); }}>
+                  Sign out
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" className="hidden sm:inline-flex gap-2" onClick={() => navigate('/login')}>
+                <Github className="h-4 w-4" />
+                Sign in
+              </Button>
+            )}
 
-              {/* Mobile Menu Toggle (hidden on home page) */}
-              {showMobileMenuToggle && (
-                <motion.button
-                  className="btn-menu btn-menu-mobile md:hidden"
-                  onClick={() => setIsOpen(!isOpen)}
-                  aria-label={isOpen ? 'Close navigation menu' : 'Open navigation menu'}
-                  aria-expanded={isOpen}
-                  aria-controls="mobile-navigation-menu"
-                  whileTap={{ scale: 0.9 }}
-                >
-                  <AnimatePresence mode="wait">
-                    {isOpen ? (
-                      <motion.div
-                        key="close"
-                        initial={{ rotate: -90, opacity: 0 }}
-                        animate={{ rotate: 0, opacity: 1 }}
-                        exit={{ rotate: 90, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <X size={20} className="text-[#25D7FF]" />
-                      </motion.div>
-                    ) : (
-                      <motion.div
-                        key="open"
-                        initial={{ rotate: 90, opacity: 0 }}
-                        animate={{ rotate: 0, opacity: 1 }}
-                        exit={{ rotate: -90, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="menu-bars"
-                      >
-                        <span />
-                        <span />
-                        <span />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.button>
-              )}
-            </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="md:hidden"
+              onClick={() => setOpen(!open)}
+              aria-label={open ? 'Close menu' : 'Open menu'}
+            >
+              {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
           </div>
         </div>
-      </motion.nav>
+      </header>
 
-      {/* Mobile Menu */}
       <AnimatePresence>
-        {showMobileMenuToggle && isOpen && (
+        {open && (
           <motion.div
-            id="mobile-navigation-menu"
-            className="mobile-menu"
-            initial={{ opacity: 0, y: -20 }}
+            initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
+            exit={{ opacity: 0, y: -8 }}
+            className="fixed inset-x-0 top-14 z-40 border-b border-border bg-background p-4 shadow-md md:hidden"
           >
-            <div className="mobile-menu-content">
-              {navLinks.map((link, index) => (
-                <motion.a
+            <nav className="flex flex-col gap-1">
+              {navLinks.map((link) => (
+                <a
                   key={link.label}
                   href={link.href}
-                  className="mobile-nav-link"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ delay: index * 0.05, duration: 0.2 }}
-                  onClick={handleNavClick}
+                  className="rounded-lg px-3 py-2.5 text-sm font-medium text-foreground hover:bg-secondary"
+                  onClick={() => setOpen(false)}
                 >
                   {link.label}
-                </motion.a>
+                </a>
               ))}
-
-              {/* Mobile GitHub Button */}
               {isAuthenticated ? (
-                <motion.button
-                  type="button"
-                  className="mobile-github-btn"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ delay: navLinks.length * 0.05, duration: 0.2 }}
-                  onClick={() => {
-                    handleNavClick();
-                    handleLogout();
-                  }}
-                >
-                  <span>Sign out</span>
-                </motion.button>
+                <>
+                  <button type="button" className="rounded-lg px-3 py-2.5 text-left text-sm font-medium hover:bg-secondary" onClick={() => { setOpen(false); navigate('/dashboard'); }}>
+                    Dashboard
+                  </button>
+                  <button type="button" className="rounded-lg px-3 py-2.5 text-left text-sm text-destructive hover:bg-secondary" onClick={() => { logout(); navigate('/login'); }}>
+                    Sign out ({userName})
+                  </button>
+                </>
               ) : (
-                <motion.button
-                  type="button"
-                  onClick={() => {
-                    handleNavClick();
-                    navigate('/login');
-                  }}
-                  className="mobile-github-btn"
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ delay: navLinks.length * 0.05, duration: 0.2 }}
-                >
-                  <Github size={18} />
-                  <span>Sign in</span>
-                </motion.button>
+                <Button className="mt-2 w-full gap-2" onClick={() => { setOpen(false); navigate('/login'); }}>
+                  <Github className="h-4 w-4" />
+                  Sign in with GitHub
+                </Button>
               )}
-            </div>
+            </nav>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Spacer for fixed navbar */}
-      <div className="navbar-spacer" />
+      <div className="h-14" aria-hidden />
     </>
   );
 };

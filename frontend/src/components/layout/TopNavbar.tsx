@@ -1,18 +1,27 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Search, Bell } from 'lucide-react';
+import { Search, Bell, Sun, Moon, Menu, Plus, Settings, LogOut, User } from 'lucide-react';
 import { useAuth } from '@/app/providers/auth-provider';
+import { useTheme } from '@/context/ThemeContext';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 
 const TopNavbar: React.FC<{ onToggleMobileSidebar?: () => void }> = ({ onToggleMobileSidebar }) => {
-  const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { logout, user } = useAuth();
-  const userInitial =
-    user?.username?.[0]?.toUpperCase() ||
-    user?.name?.[0]?.toUpperCase() ||
-    user?.login?.[0]?.toUpperCase() ||
-    'U';
+  const { theme, toggleTheme } = useTheme();
+
+  const userName = user?.username || user?.name || user?.login || 'User';
+  const userInitial = userName[0]?.toUpperCase() || 'U';
 
   const handleLogout = () => {
     logout();
@@ -20,68 +29,90 @@ const TopNavbar: React.FC<{ onToggleMobileSidebar?: () => void }> = ({ onToggleM
   };
 
   return (
-    <header className="w-full border-b border-white/6 bg-[rgba(10,14,24,0.4)] backdrop-blur-md">
-      <div className="max-w-full mx-auto px-4 py-3 flex items-center gap-4">
-        <div className="flex items-center gap-3 md:hidden">
-          <button onClick={onToggleMobileSidebar} className="p-2 rounded-lg hover:bg-white/3">
-            <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
+    <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-sm">
+      <div className="flex h-14 items-center gap-3 px-4 lg:px-6">
+        {/* Mobile menu */}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="lg:hidden"
+          onClick={onToggleMobileSidebar}
+          aria-label="Open navigation menu"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+
+        {/* Search */}
+        <div className="hidden flex-1 sm:block sm:max-w-md">
+          <Input
+            placeholder="Search deployments, repos..."
+            icon={<Search className="h-4 w-4" />}
+            aria-label="Search"
+            className="h-9 bg-secondary/60"
+          />
         </div>
 
-        <div className="flex items-center flex-1">
-          <div className="relative w-full max-w-md">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="w-4 h-4 text-white/70" />
-            </div>
-            <input
-              placeholder="Search deployments, services..."
-              className="w-full pl-10 pr-4 py-2 rounded-lg bg-white/5 placeholder-white/50 text-white focus:outline-none"
-            />
-          </div>
-        </div>
+        <div className="ml-auto flex items-center gap-1.5">
+          {/* Quick deploy */}
+          <Button size="sm" className="hidden sm:inline-flex gap-1.5" onClick={() => navigate('/dashboard')}>
+            <Plus className="h-4 w-4" />
+            New deploy
+          </Button>
 
-        <div className="flex items-center gap-3">
-          <button className="p-2 rounded-lg hover:bg-white/3 relative">
-            <Bell className="w-5 h-5 text-white" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full border border-white/20" />
-          </button>
+          {/* Theme toggle */}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
 
-          <div className="relative">
-            <button onClick={() => setOpen(!open)} className="flex items-center gap-2 p-2 rounded-lg hover:bg-white/3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-sm font-semibold">{userInitial}</div>
-              <div className="hidden md:block text-sm text-white/90">{user?.username || user?.name || 'User'}</div>
-            </button>
+          {/* Notifications */}
+          <Button variant="ghost" size="icon-sm" aria-label="Notifications" className="relative">
+            <Bell className="h-4 w-4" />
+            <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-destructive ring-2 ring-background" />
+          </Button>
 
-            {open && (
-              <motion.div
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.18 }}
-                className="absolute right-0 mt-2 w-44 bg-[rgba(12,16,26,0.85)] border border-white/6 backdrop-blur-md rounded-lg shadow-lg overflow-hidden"
+          {/* User menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className={cn(
+                  'flex items-center gap-2 rounded-lg p-1.5 transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                )}
+                aria-label="User menu"
               >
-                <ul className="py-1">
-                  <li>
-                    <a href="/profile" className="block px-3 py-2 text-sm hover:bg-white/3">Profile</a>
-                  </li>
-                  <li>
-                    <a href="/settings" className="block px-3 py-2 text-sm hover:bg-white/3">Settings</a>
-                  </li>
-                  <li>
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      className="w-full text-left px-3 py-2 text-sm text-rose-400 hover:bg-white/3"
-                    >
-                      Sign out
-                    </button>
-                  </li>
-                </ul>
-              </motion.div>
-            )}
-          </div>
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                  {userInitial}
+                </div>
+                <span className="hidden text-sm font-medium text-foreground md:block">{userName}</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuLabel>
+                <div className="font-normal">
+                  <p className="text-sm font-medium">{userName}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email || 'CloudOps account'}</p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate('/settings?tab=profile')}>
+                <User className="mr-2 h-4 w-4" />
+                Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/settings')}>
+                <Settings className="mr-2 h-4 w-4" />
+                Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>

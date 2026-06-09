@@ -1,17 +1,30 @@
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { DashboardLayout } from '@/components/layout';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Activity, CheckCircle2, Clock3, TrendingUp, AlertTriangle, Zap } from 'lucide-react';
+import {
+  Activity,
+  CheckCircle2,
+  Clock3,
+  TrendingUp,
+  ArrowRight,
+  ExternalLink,
+} from 'lucide-react';
+import { DashboardLayout } from '@/components/layout';
+import {
+  PageHeader,
+  MetricCard,
+  Alert,
+  StatusBadge,
+  Card,
+  Skeleton,
+  EmptyState,
+  Button,
+} from '@/components/ui';
 import { analyticsService } from '@/services/auth-service';
+import { formatDuration, formatRelativeDate } from '@/lib/utils';
 
-// Lazy load RepoList
 const RepoList = React.lazy(() => import('@/components/dashboard/RepoList'));
-
-/**
- * Dashboard Page
- * Main application dashboard for authenticated users
- */
 
 type DashboardSummary = {
   totalDeployments?: number;
@@ -19,24 +32,19 @@ type DashboardSummary = {
   activeDeployments?: number;
   successRate?: number;
   avgDeployTimeMs?: number;
-  totalDeployTimeMs?: number;
 };
 
 type DashboardData = {
   summary?: DashboardSummary;
-  statusBreakdown?: Array<{ status: string; count: number }>;
-  frameworkBreakdown?: Array<{ framework: string; count: number }>;
-  deploymentTrend?: Array<{ date: string; count: number; success: number; failed: number }>;
-  recentDeployments?: Array<any>;
-};
-
-const formatDuration = (ms = 0) => {
-  if (!ms || Number.isNaN(ms)) return '0s';
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remaining = Math.round(seconds % 60);
-  return `${minutes}m ${remaining}s`;
+  recentDeployments?: Array<{
+    _id: string;
+    repositoryName?: string;
+    framework?: string;
+    status?: string;
+    totalTime?: number;
+    createdAt?: string;
+    publicUrl?: string;
+  }>;
 };
 
 export default function DashboardPage() {
@@ -46,7 +54,7 @@ export default function DashboardPage() {
       const response = await analyticsService.getDashboard();
       return response.data as DashboardData;
     },
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
   });
 
   const summary = dashboardData?.summary || {};
@@ -56,168 +64,154 @@ export default function DashboardPage() {
       icon: TrendingUp,
       label: 'Total Deployments',
       value: String(summary.totalDeployments || 0),
-      color: 'text-accent',
-      description: 'All time deployments'
+      description: 'All time',
     },
     {
       icon: CheckCircle2,
       label: 'Success Rate',
       value: `${Number(summary.successRate || 0).toFixed(1)}%`,
-      color: 'text-success',
-      description: 'Successful deployments'
+      description: 'Successful runs',
     },
     {
       icon: Activity,
-      label: 'Active Deployments',
+      label: 'Active',
       value: String(summary.activeDeployments || 0),
-      color: 'text-primary',
-      description: 'Currently running'
+      description: 'Currently running',
     },
     {
       icon: Clock3,
       label: 'Avg Deploy Time',
       value: formatDuration(summary.avgDeployTimeMs || 0),
-      color: 'text-warning',
-      description: 'Average completion time'
+      description: 'Mean duration',
     },
   ];
 
   return (
     <DashboardLayout>
-      <main className="space-y-10">
-        <div className="max-w-7xl mx-auto">
-          {/* Welcome Header */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="mb-12"
-          >
-            <h1 className="text-4xl md:text-5xl font-bold text-text-primary mb-4">
-              Dashboard
-            </h1>
-            <p className="text-text-secondary text-lg">
-              Welcome back! Here's what's happening with your deployments.
-            </p>
-          </motion.div>
+      <PageHeader
+        title="Dashboard"
+        description="Monitor deployments, infrastructure health, and repository activity at a glance."
+        actions={
+          <Link to="/deployments">
+            <Button variant="outline" size="sm" className="gap-2">
+              View all deployments
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          </Link>
+        }
+      />
 
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-            {stats.map((stat, index) => {
-              const Icon = stat.icon;
-              return (
-                <motion.div
-                  key={stat.label}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, delay: index * 0.1 }}
-                  className="backdrop-blur-md bg-surface-glass/30 border border-border/50 rounded-xl p-6 hover:border-primary/50 transition-all duration-300"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <p className="text-text-secondary text-sm mb-1">{stat.label}</p>
-                      <p className="text-text-secondary text-xs mb-2">{stat.description}</p>
-                      {isLoading ? (
-                        <div className="h-8 bg-surface-glass/50 rounded animate-pulse"></div>
-                      ) : (
-                        <p className="text-3xl font-bold text-text-primary">{stat.value}</p>
-                      )}
-                    </div>
-                    <div className={`${stat.color} opacity-60`}>
-                      <Icon className="w-10 h-10" />
-                    </div>
-                  </div>
-                </motion.div>
-              );
-            })}
+      {error && (
+        <Alert variant="destructive" title="Failed to load dashboard" className="mb-6">
+          Could not fetch analytics data. Your deployments are still accessible from the deployments page.
+        </Alert>
+      )}
+
+      {/* Metrics */}
+      <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {stats.map((stat, index) => (
+          <MetricCard
+            key={stat.label}
+            icon={stat.icon}
+            label={stat.label}
+            value={stat.value}
+            description={stat.description}
+            loading={isLoading}
+            delay={index * 0.08}
+          />
+        ))}
+      </div>
+
+      {/* Recent deployments */}
+      <section className="mb-10">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="font-display text-xl font-semibold text-foreground">Recent Deployments</h2>
+          <Link to="/deployments" className="text-sm text-primary hover:underline">
+            View all
+          </Link>
+        </div>
+
+        {isLoading ? (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Card key={i} className="p-5">
+                <Skeleton className="mb-2 h-4 w-3/4" />
+                <Skeleton className="mb-4 h-3 w-1/2" />
+                <Skeleton className="h-6 w-20 rounded-full" />
+              </Card>
+            ))}
           </div>
-
-          {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
-              <div className="flex items-center gap-2 text-red-400">
-                <AlertTriangle className="w-5 h-5" />
-                <span>Failed to load dashboard data</span>
-              </div>
-            </div>
-          )}
-
-          {/* Recent Deployments Preview */}
-          {dashboardData?.recentDeployments && dashboardData.recentDeployments.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.3 }}
-              className="mb-12"
-            >
-              <h2 className="text-2xl font-bold text-text-primary mb-4">Recent Deployments</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {dashboardData.recentDeployments.slice(0, 6).map((deployment: any, index: number) => (
-                  <motion.div
-                    key={deployment._id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6, delay: 0.4 + index * 0.1 }}
-                    className="backdrop-blur-md bg-surface-glass/20 border border-border/30 rounded-xl p-4"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-text-primary font-medium text-sm truncate">
+        ) : dashboardData?.recentDeployments && dashboardData.recentDeployments.length > 0 ? (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {dashboardData.recentDeployments.slice(0, 6).map((deployment, index) => (
+              <motion.div
+                key={deployment._id}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 + index * 0.06 }}
+              >
+                <Link to={`/deployments/${deployment._id}`}>
+                  <Card className="group h-full border-border/60 bg-card/80 p-5 transition-all hover:border-primary/30 hover:shadow-glow">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium text-foreground group-hover:text-primary">
                           {deployment.repositoryName || 'Unknown Repository'}
                         </p>
-                        <p className="text-text-secondary text-xs">
-                          {deployment.framework || 'Unknown'} • {formatDuration(deployment.totalTime)}
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {deployment.framework || 'Unknown'} · {formatDuration(deployment.totalTime)}
                         </p>
                       </div>
-                      <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        deployment.status === 'success'
-                          ? 'bg-green-500/20 text-green-400'
-                          : deployment.status === 'failed'
-                          ? 'bg-red-500/20 text-red-400'
-                          : 'bg-yellow-500/20 text-yellow-400'
-                      }`}>
-                        {deployment.status}
-                      </div>
+                      <StatusBadge status={deployment.status} />
                     </div>
-                    <p className="text-text-secondary text-xs">
-                      {new Date(deployment.createdAt).toLocaleDateString()}
-                    </p>
-                    {deployment.publicUrl && (
-                      <a
-                        href={deployment.publicUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:text-primary/80 text-xs mt-2 inline-block"
-                      >
-                        View Live →
-                      </a>
-                    )}
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
-          )}
+                    <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{formatRelativeDate(deployment.createdAt)}</span>
+                      {deployment.publicUrl && (
+                        <span
+                          className="inline-flex items-center gap-1 text-primary"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          Live
+                        </span>
+                      )}
+                    </div>
+                  </Card>
+                </Link>
+              </motion.div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={Activity}
+            title="No deployments yet"
+            description="Connect a GitHub repository and deploy your first project to see activity here."
+            action={{ label: 'Go to repositories', onClick: () => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }) }}
+          />
+        )}
+      </section>
 
-          {/* Repositories */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.4 }}
-            className=""
-          >
-            <h2 className="text-2xl font-bold text-text-primary mb-4">GitHub repositories</h2>
-            <div className="mb-6">
-              <p className="text-text-secondary">Connect a GitHub repo to load live repository cards and manage them from CloudOps.</p>
-            </div>
-
-            <div>
-              {/* Lazy load RepoList to avoid heavy initial bundle if desired */}
-              <Suspense fallback={<div>Loading repositories...</div>}>
-                <RepoList />
-              </Suspense>
-            </div>
-          </motion.div>
+      {/* Repositories */}
+      <section>
+        <div className="mb-4">
+          <h2 className="font-display text-xl font-semibold text-foreground">GitHub Repositories</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Connect a repository to deploy and manage from CloudOps.
+          </p>
         </div>
-      </main>
+        <Suspense
+          fallback={
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Card key={i} className="p-5">
+                  <Skeleton className="h-24 w-full" />
+                </Card>
+              ))}
+            </div>
+          }
+        >
+          <RepoList />
+        </Suspense>
+      </section>
     </DashboardLayout>
   );
 }

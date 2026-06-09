@@ -16,9 +16,12 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlertTriangle, CheckCircle2, Clock3, Loader2, ShieldAlert, TrendingUp } from 'lucide-react';
+import { CheckCircle2, Clock3, Loader2, ShieldAlert, TrendingUp, Cloud } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
 import { analyticsService } from '@/services/auth-service';
+import { PageHeader, MetricCard, Alert, ChartContainer, Card } from '@/components/ui';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTheme } from '@/context/ThemeContext';
 
 type DashboardAnalytics = {
   summary?: {
@@ -79,14 +82,18 @@ const formatDuration = (ms = 0) => {
 
 const formatUsd = (value = 0) => `$${value.toFixed(4)}`;
 
-const chartTooltipStyle = {
-  background: 'rgba(2, 6, 23, 0.95)',
-  border: '1px solid rgba(255,255,255,0.08)',
+const chartTooltipStyle = (isDark: boolean) => ({
+  background: isDark ? 'hsl(222 47% 9%)' : 'hsl(0 0% 100%)',
+  border: isDark ? '1px solid hsl(217 33% 17%)' : '1px solid hsl(220 13% 91%)',
   borderRadius: 10,
-};
+  color: isDark ? 'hsl(210 40% 98%)' : 'hsl(224 71% 4%)',
+});
 
 export default function AnalyticsPage(){
   const [days, setDays] = useState(30);
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  const tooltipStyle = chartTooltipStyle(isDark);
   const queryParams = useMemo(() => ({ days }), [days]);
 
   const dashboardQuery = useQuery({
@@ -126,208 +133,145 @@ export default function AnalyticsPage(){
   const deployments = deploymentsQuery.data || {};
 
   const statCards = [
-    {
-      label: 'Total deployments',
-      value: String(dashboard.summary?.totalDeployments || 0),
-      icon: <TrendingUp className="h-5 w-5" />,
-      tone: 'text-cyan-200',
-    },
-    {
-      label: 'Success rate',
-      value: `${Number(dashboard.summary?.successRate || 0).toFixed(1)}%`,
-      icon: <CheckCircle2 className="h-5 w-5" />,
-      tone: 'text-emerald-200',
-    },
-    {
-      label: 'Avg deploy time',
-      value: formatDuration(performance.avgDeployTimeMs || dashboard.summary?.avgDeployTimeMs || 0),
-      icon: <Clock3 className="h-5 w-5" />,
-      tone: 'text-amber-200',
-    },
-    {
-      label: 'Failure rate',
-      value: `${Number(performance.failureRate || 0).toFixed(1)}%`,
-      icon: <ShieldAlert className="h-5 w-5" />,
-      tone: 'text-rose-200',
-    },
-    {
-      label: 'No of deploys in AWS',
-      value: String(dashboard.summary?.awsDeployments || 0),
-      icon: <TrendingUp className="h-5 w-5" />,
-      tone: 'text-orange-200',
-    },
-    {
-      label: 'No of deploys in Azure',
-      value: String(dashboard.summary?.azureDeployments || 0),
-      icon: <TrendingUp className="h-5 w-5" />,
-      tone: 'text-blue-200',
-    },
+    { label: 'Total deployments', value: String(dashboard.summary?.totalDeployments || 0), icon: TrendingUp },
+    { label: 'Success rate', value: `${Number(dashboard.summary?.successRate || 0).toFixed(1)}%`, icon: CheckCircle2 },
+    { label: 'Avg deploy time', value: formatDuration(performance.avgDeployTimeMs || dashboard.summary?.avgDeployTimeMs || 0), icon: Clock3 },
+    { label: 'Failure rate', value: `${Number(performance.failureRate || 0).toFixed(1)}%`, icon: ShieldAlert },
+    { label: 'AWS deploys', value: String(dashboard.summary?.awsDeployments || 0), icon: TrendingUp },
+    { label: 'Azure deploys', value: String(dashboard.summary?.azureDeployments || 0), icon: Cloud },
   ];
 
   return (
     <DashboardLayout>
-      <main className="space-y-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-white">Analytics</h1>
-              <p className="text-white/60">Real deployment analytics powered by your MongoDB deployment history.</p>
+      <PageHeader
+        title="Analytics"
+        description="Real deployment analytics powered by your deployment history."
+        actions={
+          <Tabs value={String(days)} onValueChange={(v) => setDays(Number(v))}>
+            <TabsList>
+              {[7, 30, 90].map((value) => (
+                <TabsTrigger key={value} value={String(value)}>
+                  {value}d
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        }
+      />
+
+      {loadError && (
+        <Alert variant="destructive" title="Failed to load analytics" className="mb-6">
+          {(loadError as any)?.message || 'Failed to load analytics data.'}
+        </Alert>
+      )}
+
+      {loading ? (
+        <Card className="flex items-center gap-3 p-4 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading analytics...
+        </Card>
+      ) : (
+        <>
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            {statCards.map((card, i) => (
+              <MetricCard key={card.label} label={card.label} value={card.value} icon={card.icon} delay={i * 0.05} />
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="space-y-6 lg:col-span-2">
+              <ChartContainer title="Deployment trend" description="Daily success vs failure">
+                <div style={{ width: '100%', height: 260 }}>
+                  <ResponsiveContainer>
+                    <AreaChart data={dashboard.deploymentTrend || []}>
+                      <defs>
+                        <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#6366f1" stopOpacity={0.4} />
+                          <stop offset="100%" stopColor="#6366f1" stopOpacity={0.05} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'} />
+                      <XAxis dataKey="date" tick={{ fill: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)', fontSize: 11 }} />
+                      <YAxis tick={{ fill: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)', fontSize: 11 }} />
+                      <Tooltip contentStyle={tooltipStyle} />
+                      <Area type="monotone" dataKey="count" stroke="#6366f1" fill="url(#trendGradient)" strokeWidth={2} />
+                      <Line type="monotone" dataKey="success" stroke="#10b981" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="failed" stroke="#f43f5e" strokeWidth={2} dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </ChartContainer>
             </div>
 
-            <div className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 p-1">
-              {[7, 30, 90].map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setDays(value)}
-                  className={`rounded-lg px-3 py-2 text-xs font-medium transition ${days === value ? 'bg-cyan-500/20 text-cyan-200' : 'text-white/60 hover:text-white'}`}
-                >
-                  {value}d
-                </button>
-              ))}
+            <div className="space-y-6">
+              <ChartContainer title="Status distribution">
+                <div style={{ width: '100%', height: 220 }}>
+                  <ResponsiveContainer>
+                    <PieChart>
+                      <Pie data={dashboard.statusBreakdown || []} dataKey="count" nameKey="status" cx="50%" cy="50%" outerRadius={80} label>
+                        {(dashboard.statusBreakdown || []).map((entry, index) => (
+                          <Cell key={`${entry.status}-${index}`} fill={STATUS_COLORS[entry.status] || STATUS_COLORS.default} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={tooltipStyle} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </ChartContainer>
+
+              <ChartContainer title="Framework usage">
+                <div style={{ width: '100%', height: 220 }}>
+                  <ResponsiveContainer>
+                    <BarChart data={dashboard.frameworkBreakdown || []}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'} />
+                      <XAxis dataKey="framework" tick={{ fill: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)', fontSize: 11 }} />
+                      <YAxis tick={{ fill: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)', fontSize: 11 }} />
+                      <Tooltip contentStyle={tooltipStyle} />
+                      <Bar dataKey="count" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </ChartContainer>
             </div>
           </div>
 
-          {loadError && (
-            <div className="mb-4 flex items-start gap-3 rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{(loadError as any)?.message || 'Failed to load analytics data.'}</span>
-            </div>
-          )}
-
-          {loading ? (
-            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading analytics...
-            </div>
-          ) : (
-            <>
-              <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
-                {statCards.map((card) => (
-                  <div key={card.label} className="rounded-xl border border-white/10 bg-[rgba(12,16,26,0.7)] p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm text-white/60">{card.label}</div>
-                      <div className={`rounded-lg border border-white/10 bg-white/5 p-2 ${card.tone}`}>{card.icon}</div>
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <ChartContainer title="Slowest deployments">
+              <div className="space-y-2">
+                {(performance.slowestDeployments || []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No timed deployments in this window.</p>
+                ) : (
+                  (performance.slowestDeployments || []).map((item) => (
+                    <div key={item.deploymentId} className="rounded-lg border border-border bg-secondary/50 px-3 py-2">
+                      <div className="text-sm font-medium text-foreground">{item.repositoryName}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {formatDuration(item.totalTimeMs)} · {new Date(item.createdAt).toLocaleString()} · {item.status}
+                      </div>
                     </div>
-                    <div className="mt-3 text-2xl font-bold text-white">{card.value}</div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
+            </ChartContainer>
 
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <div className="lg:col-span-2 space-y-4">
-                  <div className="rounded-xl border border-white/10 bg-[rgba(12,16,26,0.7)] p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-white">Deployment trend</h3>
-                      <div className="text-xs text-white/60">Daily</div>
+            <ChartContainer title="Top repositories">
+              <div className="space-y-2">
+                {(deployments.topRepositories || []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No repository activity in this window.</p>
+                ) : (
+                  (deployments.topRepositories || []).map((item) => (
+                    <div key={item.repositoryName} className="rounded-lg border border-border bg-secondary/50 px-3 py-2">
+                      <div className="text-sm font-medium text-foreground">{item.repositoryName}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {item.count} deployments · {item.successRate.toFixed(1)}% success
+                      </div>
                     </div>
-                    <div style={{ width: '100%', height: 260 }}>
-                      <ResponsiveContainer>
-                        <AreaChart data={dashboard.deploymentTrend || []}>
-                          <defs>
-                            <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.5} />
-                              <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.05} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                          <XAxis dataKey="date" tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 11 }} />
-                          <YAxis tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 11 }} />
-                          <Tooltip contentStyle={chartTooltipStyle} />
-                          <Area type="monotone" dataKey="count" stroke="#22d3ee" fill="url(#trendGradient)" strokeWidth={2} />
-                          <Line type="monotone" dataKey="success" stroke="#34d399" strokeWidth={2} dot={false} />
-                          <Line type="monotone" dataKey="failed" stroke="#fb7185" strokeWidth={2} dot={false} />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-
-                </div>
-
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-white/10 bg-[rgba(12,16,26,0.7)] p-4">
-                    <h3 className="mb-3 text-sm font-semibold text-white">Status distribution</h3>
-                    <div style={{ width: '100%', height: 220 }}>
-                      <ResponsiveContainer>
-                        <PieChart>
-                          <Pie
-                            data={dashboard.statusBreakdown || []}
-                            dataKey="count"
-                            nameKey="status"
-                            cx="50%"
-                            cy="50%"
-                            outerRadius={80}
-                            label
-                          >
-                            {(dashboard.statusBreakdown || []).map((entry, index) => (
-                              <Cell key={`${entry.status}-${index}`} fill={STATUS_COLORS[entry.status] || STATUS_COLORS.default} />
-                            ))}
-                          </Pie>
-                          <Tooltip contentStyle={chartTooltipStyle} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 bg-[rgba(12,16,26,0.7)] p-4">
-                    <h3 className="mb-3 text-sm font-semibold text-white">Framework usage</h3>
-                    <div style={{ width: '100%', height: 220 }}>
-                      <ResponsiveContainer>
-                        <BarChart data={dashboard.frameworkBreakdown || []}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                          <XAxis dataKey="framework" tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 11 }} />
-                          <YAxis tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 11 }} />
-                          <Tooltip contentStyle={chartTooltipStyle} />
-                          <Bar dataKey="count" fill="#34d399" radius={[6, 6, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
+                  ))
+                )}
               </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className="rounded-xl border border-white/10 bg-[rgba(12,16,26,0.7)] p-4">
-                  <h3 className="mb-3 text-sm font-semibold text-white">Slowest deployments</h3>
-                  <div className="space-y-2">
-                    {(performance.slowestDeployments || []).length === 0 ? (
-                      <div className="text-sm text-white/50">No timed deployments found in this window.</div>
-                    ) : (
-                      (performance.slowestDeployments || []).map((item) => (
-                        <div key={item.deploymentId} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                          <div className="text-sm font-medium text-white">{item.repositoryName}</div>
-                          <div className="mt-1 text-xs text-white/60">
-                            {formatDuration(item.totalTimeMs)} | {new Date(item.createdAt).toLocaleString()} | {item.status}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-[rgba(12,16,26,0.7)] p-4">
-                  <h3 className="mb-3 text-sm font-semibold text-white">Top repositories</h3>
-                  <div className="space-y-2">
-                    {(deployments.topRepositories || []).length === 0 ? (
-                      <div className="text-sm text-white/50">No repository activity found in this window.</div>
-                    ) : (
-                      (deployments.topRepositories || []).map((item) => (
-                        <div key={item.repositoryName} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                          <div className="text-sm font-medium text-white">{item.repositoryName}</div>
-                          <div className="mt-1 text-xs text-white/60">
-                            {item.count} deployments | {item.successRate.toFixed(1)}% success
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </main>
+            </ChartContainer>
+          </div>
+        </>
+      )}
     </DashboardLayout>
   );
 }
