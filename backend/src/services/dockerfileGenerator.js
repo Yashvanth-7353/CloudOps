@@ -66,8 +66,12 @@ FROM node:18-alpine
 
 WORKDIR ${workdir}
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Install dumb-init and Python for orchestrator support
+RUN apk add --no-cache dumb-init python3 py3-pip bash
+
+# Install Python dependencies from orchestrator (if available in build context)
+COPY ../azure/orchestrator/requirements.txt /tmp/requirements.txt
+RUN if [ -f /tmp/requirements.txt ]; then pip3 install --no-cache-dir -r /tmp/requirements.txt; else echo "requirements.txt not found"; fi
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
@@ -76,9 +80,18 @@ RUN adduser -S nodejs -u 1001
 # Copy from builder
 COPY --from=builder --chown=nodejs:nodejs ${workdir} ${workdir}
 
+# Copy orchestrator package into container
+COPY --chown=nodejs:nodejs ../azure/orchestrator /orchestrator
+
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=${port}
+ENV PYTHON=python3
+ENV PYTHONPATH=/orchestrator:\$PYTHONPATH
+ENV NODE_ENV=production
+ENV PORT=${port}
+ENV PYTHON=python3
+ENV PYTHONPATH=/orchestrator:\$PYTHONPATH
 
 # Expose port
 EXPOSE ${port}
