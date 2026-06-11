@@ -15,6 +15,8 @@ import {
   Search,
   Server,
   Layers3,
+  Cloud,
+  Package,
 } from 'lucide-react';
 import { formatApplicationType, formatHealthStatus } from '@/lib/application-types';
 import { DashboardLayout } from '@/components/layout';
@@ -278,6 +280,22 @@ export default function DeploymentsPage() {
             const appName = deployment.applicationName || deployment.repositoryName || 'Unnamed application';
             const appType = formatApplicationType(deployment.applicationType);
             const health = formatHealthStatus(deployment.healthStatus);
+            
+            // Determine provider
+            const deploymentService = (deployment as any)?.deploymentService || 'unknown';
+            const provider = (deployment as any)?.infrastructure?.provider || deploymentService;
+            const isAWS = provider === 'aws' || deploymentService === 'aws';
+            const isAzure = provider === 'azure' || deploymentService === 'azure';
+            const isS3 = deploymentService === 's3-static' || deploymentService === 's3' || provider === 's3';
+            
+            let providerBadge = { label: 'Cloud', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' };
+            if (isAWS) {
+              providerBadge = { label: 'AWS', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20' };
+            } else if (isAzure) {
+              providerBadge = { label: 'Azure', color: 'bg-sky-500/10 text-sky-400 border-sky-500/20' };
+            } else if (isS3) {
+              providerBadge = { label: 'S3', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' };
+            }
 
             return (
               <motion.button
@@ -291,27 +309,81 @@ export default function DeploymentsPage() {
                 onClick={() => navigate(`/deployments/${deployment._id}`)}
                 className="group rounded-xl border border-border/60 bg-card/80 p-5 text-left shadow-sm transition hover:border-primary/30 hover:shadow-glow"
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-                      <Layers3 className="h-3.5 w-3.5" />
-                      {appType}
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className={`rounded-full border px-2.5 py-1 font-medium ${providerBadge.color}`}>
+                        {providerBadge.label}
+                      </span>
+                      <span className="uppercase tracking-wider text-muted-foreground">
+                        {appType}
+                      </span>
                     </div>
                     <h3 className="mt-2 truncate font-display text-lg font-semibold text-foreground group-hover:text-primary">
                       {appName}
                     </h3>
-                    <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-                      <GitBranch className="h-4 w-4" />
-                      {deployment.branch || 'main'}
-                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {deployment.framework || 'Auto-detected'} • {deployment.branch || 'main'}
+                    </p>
                   </div>
                   <StatusBadge status={status} />
                 </div>
 
-                <div className="mt-4 grid gap-2 text-sm">
+                {/* Provider-specific details */}
+                <div className="mb-4 rounded-lg bg-secondary/30 p-3 text-xs space-y-2 border border-border/40">
+                  {isAWS && (
+                    <>
+                      {(deployment as any)?.infrastructure?.ec2?.instanceId && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Instance:</span>
+                          <span className="font-mono text-foreground">{(deployment as any).infrastructure.ec2.instanceId}</span>
+                        </div>
+                      )}
+                      {(deployment as any)?.infrastructure?.region && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Region:</span>
+                          <span className="text-foreground">{(deployment as any).infrastructure.region}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {isAzure && (
+                    <>
+                      {(deployment as any)?.infrastructure?.aci?.containerGroupName && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Container:</span>
+                          <span className="font-mono text-foreground text-xs">{(deployment as any).infrastructure.aci.containerGroupName}</span>
+                        </div>
+                      )}
+                      {(deployment as any)?.infrastructure?.aci?.location && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Location:</span>
+                          <span className="text-foreground">{(deployment as any).infrastructure.aci.location}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {isS3 && (
+                    <>
+                      {(deployment as any)?.infrastructure?.s3?.bucket && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Bucket:</span>
+                          <span className="font-mono text-foreground text-xs">{(deployment as any).infrastructure.s3.bucket}</span>
+                        </div>
+                      )}
+                      {(deployment as any)?.infrastructure?.region && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Region:</span>
+                          <span className="text-foreground">{(deployment as any).infrastructure.region}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="grid gap-2 text-sm">
                   {[
                     { label: 'Health', value: health, icon: HeartPulse },
-                    { label: 'Updated', value: formatDate(deployment.updatedAt || deployment.createdAt) },
                     { label: 'Duration', value: formatDuration(deployment.totalTime) },
                   ].map((row) => (
                     <div key={row.label} className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2">
@@ -322,6 +394,12 @@ export default function DeploymentsPage() {
                       <span className="font-medium text-foreground">{row.value}</span>
                     </div>
                   ))}
+                  {(deployment as any)?.estimatedCostMonthly && (
+                    <div className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2">
+                      <span className="text-muted-foreground">Est. Cost</span>
+                      <span className="font-medium text-foreground">${(deployment as any).estimatedCostMonthly.toFixed(2)}/mo</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-4 flex items-center gap-2 border-t border-border/60 pt-4 text-sm text-muted-foreground">
@@ -334,10 +412,10 @@ export default function DeploymentsPage() {
                       onClick={(event) => event.stopPropagation()}
                       className="truncate text-primary hover:underline"
                     >
-                      {liveUrl}
+                      {liveUrl.replace(/^https?:\/\//, '')}
                     </a>
                   ) : (
-                    <span>Domain URL pending</span>
+                    <span>URL pending</span>
                   )}
                 </div>
 

@@ -651,44 +651,137 @@ export default function DeploymentDetailPage() {
                 </div>
 
                 <div className="min-w-0 rounded-3xl border border-white/10 bg-[rgba(8,12,20,0.78)] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
-                  <h2 className="text-lg font-semibold text-white">Infrastructure</h2>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {[
-                      { label: 'Provider', value: deploymentProvider },
-                      { label: 'Target type', value: targetType },
-                      ...(isStaticDeployment
-                        ? [
-                            { label: 'S3 bucket', value: s3Bucket },
-                            { label: 'S3 prefix', value: s3Prefix },
-                          ]
-                        : []),
-                      { label: 'Region', value: infrastructure?.region || metadata?.target?.awsRegion || azureAciLocation || 'Pending' },
-                      { label: 'Live URL', value: deployment.domainUrl || liveInfrastructureUrl || 'Pending' },
-                      { label: 'Deploy state', value: infrastructure?.deployState || 'Pending' },
-                      { label: 'Container name', value: containerName },
-                      { label: 'Container port', value: containerPort },
-                      { label: 'Instance type', value: infrastructure?.ec2?.instanceType || metadata?.target?.instanceType || 'Pending' },
-                      { label: 'Public IP', value: deploymentPublicIp },
-                      { label: 'Private IP', value: ec2PrivateIp },
-                      { label: 'ECR repository', value: ecrRepository },
-                      { label: 'ECR repository URI', value: ecrRepositoryUri },
-                      { label: 'ACR repository', value: azureAcrRepository },
-                      { label: 'ACR login server', value: azureAcrLoginServer },
-                      { label: 'ACR image URI', value: azureAcrImageUri },
-                      { label: 'ACR image name', value: azureAcrImageName },
-                      { label: 'ACI container group', value: azureAciContainerGroup },
-                      { label: 'ACI resource group', value: azureAciResourceGroup },
-                      { label: 'ACI location', value: azureAciLocation },
-                      { label: 'ACI FQDN / IP', value: azureAciFqdn },
-                      { label: 'ACI status', value: azureAciStatus },
-                      { label: 'ACI CPU', value: azureAciCpu },
-                      { label: 'ACI memory (GB)', value: azureAciMemory },
-                    ].map((item) => (
-                      <div key={item.label} className="min-w-0 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
-                        <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">{item.label}</div>
-                        <div className="mt-2 break-all text-sm font-medium text-white">{item.value}</div>
+                  <h2 className="text-lg font-semibold text-white mb-4">Infrastructure Details</h2>
+                  
+                  {/* AWS EC2 Deployment */}
+                  {isAwsDeployment && !isStaticDeployment && (
+                    <div className="space-y-6">
+                      <div className="border-l-2 border-orange-400/30 pl-4">
+                        <h3 className="text-sm font-semibold text-orange-400 mb-3">AWS Deployment</h3>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {[
+                            { label: 'Region', value: infrastructure?.region || metadata?.target?.awsRegion || 'Pending' },
+                            { label: 'Instance ID', value: ec2InstanceId },
+                            { label: 'Instance Type', value: infrastructure?.ec2?.instanceType || metadata?.target?.instanceType || 'Pending' },
+                            { label: 'Public IP', value: deploymentPublicIp },
+                            { label: 'Private IP', value: ec2PrivateIp },
+                            { label: 'Key Name', value: infrastructure?.ec2?.keyName || 'Pending' },
+                            { label: 'VPC ID', value: infrastructure?.ec2?.vpcId || 'Pending' },
+                            { label: 'Security Groups', value: (infrastructure?.ec2?.securityGroupIds || []).join(', ') || 'Pending' },
+                          ].map((item) => (
+                            <div key={item.label} className="min-w-0 rounded-2xl border border-orange-400/10 bg-orange-500/5 px-4 py-3">
+                              <div className="text-[11px] uppercase tracking-[0.22em] text-orange-400/60">{item.label}</div>
+                              <div className="mt-2 break-all text-sm font-medium text-orange-200">{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    ))}
+
+                      <div className="border-l-2 border-amber-400/30 pl-4">
+                        <h3 className="text-sm font-semibold text-amber-400 mb-3">ECR (Docker Registry)</h3>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {[
+                            { label: 'Repository Name', value: ecrRepository },
+                            { label: 'Repository URI', value: ecrRepositoryUri },
+                            { label: 'Image URI', value: ecrImageUri },
+                            { label: 'Image Tag', value: ecrImageTag },
+                            { label: 'Build Time', value: dockerBuildTime ? formatDuration(dockerBuildTime) : 'Pending' },
+                            { label: 'Image Size', value: dockerImageSize ? `${(dockerImageSize / (1024 * 1024)).toFixed(2)} MB` : 'Pending' },
+                          ].map((item) => (
+                            <div key={item.label} className="min-w-0 rounded-2xl border border-amber-400/10 bg-amber-500/5 px-4 py-3">
+                              <div className="text-[11px] uppercase tracking-[0.22em] text-amber-400/60">{item.label}</div>
+                              <div className="mt-2 break-all text-sm font-medium text-amber-200">{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* S3 Static Deployment */}
+                  {isStaticDeployment && (
+                    <div className="border-l-2 border-emerald-400/30 pl-4">
+                      <h3 className="text-sm font-semibold text-emerald-400 mb-3">S3 Static Hosting</h3>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {[
+                          { label: 'Region', value: infrastructure?.region || 'Pending' },
+                          { label: 'S3 Bucket', value: s3Bucket },
+                          { label: 'Prefix', value: s3Prefix },
+                          { label: 'Website URL', value: infrastructure?.s3?.websiteUrl || 'Pending' },
+                          { label: 'Public IP', value: deploymentPublicIp },
+                          { label: 'Live URL', value: deployment.domainUrl || liveInfrastructureUrl || 'Pending' },
+                        ].map((item) => (
+                          <div key={item.label} className="min-w-0 rounded-2xl border border-emerald-400/10 bg-emerald-500/5 px-4 py-3">
+                            <div className="text-[11px] uppercase tracking-[0.22em] text-emerald-400/60">{item.label}</div>
+                            <div className="mt-2 break-all text-sm font-medium text-emerald-200">{item.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Azure ACI/ACR Deployment */}
+                  {isAzureDeployment && (
+                    <div className="space-y-6">
+                      <div className="border-l-2 border-sky-400/30 pl-4">
+                        <h3 className="text-sm font-semibold text-sky-400 mb-3">Azure Container Registry (ACR)</h3>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {[
+                            { label: 'Login Server', value: azureAcrLoginServer },
+                            { label: 'Repository Name', value: azureAcrRepository },
+                            { label: 'Image URI', value: azureAcrImageUri },
+                            { label: 'Image Name', value: azureAcrImageName },
+                            { label: 'Build Time', value: dockerBuildTime ? formatDuration(dockerBuildTime) : 'Pending' },
+                            { label: 'Image Size', value: dockerImageSize ? `${(dockerImageSize / (1024 * 1024)).toFixed(2)} MB` : 'Pending' },
+                          ].map((item) => (
+                            <div key={item.label} className="min-w-0 rounded-2xl border border-sky-400/10 bg-sky-500/5 px-4 py-3">
+                              <div className="text-[11px] uppercase tracking-[0.22em] text-sky-400/60">{item.label}</div>
+                              <div className="mt-2 break-all text-sm font-medium text-sky-200">{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="border-l-2 border-cyan-400/30 pl-4">
+                        <h3 className="text-sm font-semibold text-cyan-400 mb-3">Azure Container Instances (ACI)</h3>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {[
+                            { label: 'Resource Group', value: azureAciResourceGroup },
+                            { label: 'Container Group', value: azureAciContainerGroup },
+                            { label: 'Container Name', value: containerName },
+                            { label: 'Location', value: azureAciLocation },
+                            { label: 'CPU', value: azureAciCpu },
+                            { label: 'Memory (GB)', value: azureAciMemory },
+                            { label: 'FQDN / IP', value: azureAciFqdn },
+                            { label: 'Status', value: azureAciStatus },
+                          ].map((item) => (
+                            <div key={item.label} className="min-w-0 rounded-2xl border border-cyan-400/10 bg-cyan-500/5 px-4 py-3">
+                              <div className="text-[11px] uppercase tracking-[0.22em] text-cyan-400/60">{item.label}</div>
+                              <div className="mt-2 break-all text-sm font-medium text-cyan-200">{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Common Info */}
+                  <div className="mt-6 border-t border-white/10 pt-6">
+                    <h3 className="text-sm font-semibold text-white/80 mb-3">General</h3>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {[
+                        { label: 'Provider', value: deploymentProvider.toUpperCase() },
+                        { label: 'Target Type', value: targetType },
+                        { label: 'Container Port', value: containerPort },
+                        { label: 'Live URL', value: deployment.domainUrl || liveInfrastructureUrl || 'Pending' },
+                        { label: 'Deploy State', value: infrastructure?.deployState || 'Pending' },
+                      ].map((item) => (
+                        <div key={item.label} className="min-w-0 rounded-2xl border border-white/8 bg-white/4 px-4 py-3">
+                          <div className="text-[11px] uppercase tracking-[0.22em] text-white/40">{item.label}</div>
+                          <div className="mt-2 break-all text-sm font-medium text-white">{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
 

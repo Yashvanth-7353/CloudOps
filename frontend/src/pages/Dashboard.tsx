@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -8,81 +8,117 @@ import {
   Clock3,
   TrendingUp,
   ArrowRight,
-  ExternalLink,
+  Github,
+  Plus,
+  Loader2,
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
 import {
   PageHeader,
-  MetricCard,
-  Alert,
-  StatusBadge,
   Card,
-  Skeleton,
-  EmptyState,
   Button,
+  Skeleton,
 } from '@/components/ui';
-import { analyticsService } from '@/services/auth-service';
-import { formatDuration, formatRelativeDate } from '@/lib/utils';
+import { authService, deploymentService } from '@/services/auth-service';
 
 const RepoList = React.lazy(() => import('@/components/dashboard/RepoList'));
 
-type DashboardSummary = {
-  totalDeployments?: number;
-  successfulDeployments?: number;
-  activeDeployments?: number;
-  successRate?: number;
-  avgDeployTimeMs?: number;
-};
-
-type DashboardData = {
-  summary?: DashboardSummary;
-  recentDeployments?: Array<{
-    _id: string;
-    repositoryName?: string;
-    framework?: string;
-    status?: string;
-    totalTime?: number;
-    createdAt?: string;
-    publicUrl?: string;
-  }>;
-};
 
 export default function DashboardPage() {
-  const { data: dashboardData, isLoading, error } = useQuery({
-    queryKey: ['dashboard-analytics'],
+  const [deploymentStats, setDeploymentStats] = useState({
+    total: 0,
+    success: 0,
+    active: 0,
+    failed: 0,
+    avgTime: 0,
+  });
+
+  const { data: allDeployments, isLoading } = useQuery({
+    queryKey: ['all-deployments'],
     queryFn: async () => {
-      const response = await analyticsService.getDashboard();
-      return response.data as DashboardData;
+      try {
+        const meResponse = await authService.getMe();
+        const meData = meResponse?.data as any;
+        const userId = String(meData?.user?.id || '');
+        
+        const response = await deploymentService.getAll({ userId });
+        const responseData = response.data as any;
+        const deployments = Array.isArray(responseData) ? responseData : responseData?.deployments || responseData?.data || [];
+        return deployments as any[];
+      } catch (error) {
+        console.error('Error fetching deployments:', error);
+        return [];
+      }
     },
     refetchInterval: 30000,
   });
 
-  const summary = dashboardData?.summary || {};
+  // Calculate stats from real data
+  useEffect(() => {
+    if (allDeployments && allDeployments.length > 0) {
+      const successful = allDeployments.filter(d => d.status === 'success').length;
+      const active = allDeployments.filter(d => d.status === 'building' || d.status === 'deploying' || d.status === 'pending').length;
+      const failed = allDeployments.filter(d => d.status === 'failed').length;
+      
+      const completedWithTime = allDeployments
+        .filter(d => d.totalTime && d.status === 'success')
+        .map(d => d.totalTime || 0);
+      
+      const avgTime = completedWithTime.length > 0
+        ? completedWithTime.reduce((a, b) => a + b, 0) / completedWithTime.length
+        : 0;
+
+      setDeploymentStats({
+        total: allDeployments.length,
+        success: successful,
+        active: active,
+        failed: failed,
+        avgTime: avgTime,
+      });
+    }
+  }, [allDeployments]);
+
+  const formatDuration = (ms?: number) => {
+    if (!ms || Number.isNaN(ms)) return '0s';
+    const seconds = ms / 1000;
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remaining = Math.round(seconds % 60);
+    return `${minutes}m ${remaining}s`;
+  };
+
+  const successRate = deploymentStats.total > 0 
+    ? ((deploymentStats.success / deploymentStats.total) * 100).toFixed(1) 
+    : '0';
 
   const stats = [
     {
       icon: TrendingUp,
       label: 'Total Deployments',
-      value: String(summary.totalDeployments || 0),
+      value: String(deploymentStats.total),
       description: 'All time',
+      color: 'from-blue-500 to-cyan-500',
     },
     {
       icon: CheckCircle2,
       label: 'Success Rate',
-      value: `${Number(summary.successRate || 0).toFixed(1)}%`,
-      description: 'Successful runs',
+      value: `${successRate}%`,
+      description: 'Successful',
+      color: 'from-emerald-500 to-teal-500',
     },
     {
       icon: Activity,
       label: 'Active',
-      value: String(summary.activeDeployments || 0),
-      description: 'Currently running',
+      value: String(deploymentStats.active),
+      description: 'In progress',
+      color: 'from-amber-500 to-orange-500',
     },
     {
       icon: Clock3,
-      label: 'Avg Deploy Time',
-      value: formatDuration(summary.avgDeployTimeMs || 0),
-      description: 'Mean duration',
+      label: 'Avg Time',
+      value: formatDuration(deploymentStats.avgTime),
+      description: 'Deployment',
+      color: 'from-purple-500 to-pink-500',
     },
   ];
 
@@ -90,7 +126,7 @@ export default function DashboardPage() {
     <DashboardLayout>
       <PageHeader
         title="Dashboard"
-        description="Monitor deployments, infrastructure health, and repository activity at a glance."
+        description="Real-time deployment metrics and repository management."
         actions={
           <Link to="/deployments">
             <Button variant="outline" size="sm" className="gap-2">
@@ -101,116 +137,79 @@ export default function DashboardPage() {
         }
       />
 
-      {error && (
-        <Alert variant="destructive" title="Failed to load dashboard" className="mb-6">
-          Could not fetch analytics data. Your deployments are still accessible from the deployments page.
-        </Alert>
-      )}
-
-      {/* Metrics */}
-      <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat, index) => (
-          <MetricCard
-            key={stat.label}
-            icon={stat.icon}
-            label={stat.label}
-            value={stat.value}
-            description={stat.description}
-            loading={isLoading}
-            delay={index * 0.08}
-          />
-        ))}
+      {/* Metrics Grid */}
+      <div className="mb-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {stats.map((stat, index) => {
+          const Icon = stat.icon;
+          return (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.08 }}
+            >
+              <Card className="group border-border/60 bg-gradient-to-br p-6 transition-all hover:border-primary/30 hover:shadow-glow"
+                style={{
+                  backgroundImage: `linear-gradient(to bottom right, rgba(var(--${stat.color.split('-')[1]}-500)), rgba(var(--${stat.color.split('-')[3]}-500)))`
+                }}
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-white/70">{stat.label}</p>
+                    <p className="mt-2 text-3xl font-bold text-white">{stat.value}</p>
+                    <p className="mt-1 text-xs text-white/60">{stat.description}</p>
+                  </div>
+                  <Icon className="h-8 w-8 opacity-20 text-white" />
+                </div>
+              </Card>
+            </motion.div>
+          );
+        })}
       </div>
 
-      {/* Recent deployments */}
-      <section className="mb-10">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-display text-xl font-semibold text-foreground">Recent Deployments</h2>
-          <Link to="/deployments" className="text-sm text-primary hover:underline">
-            View all
-          </Link>
-        </div>
-
-        {isLoading ? (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Card key={i} className="p-5">
-                <Skeleton className="mb-2 h-4 w-3/4" />
-                <Skeleton className="mb-4 h-3 w-1/2" />
-                <Skeleton className="h-6 w-20 rounded-full" />
-              </Card>
-            ))}
+      {/* GitHub Repositories Section */}
+      <section>
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Github className="h-6 w-6 text-foreground" />
+                <h2 className="font-display text-2xl font-bold text-foreground">GitHub Repositories</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Connect your GitHub repositories to deploy with CloudOps.
+              </p>
+            </div>
+            <Link to="/deploy">
+              <Button size="sm" className="gap-2">
+                <Plus className="h-4 w-4" />
+                Connect Repository
+              </Button>
+            </Link>
           </div>
-        ) : dashboardData?.recentDeployments && dashboardData.recentDeployments.length > 0 ? (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {dashboardData.recentDeployments.slice(0, 6).map((deployment, index) => (
-              <motion.div
-                key={deployment._id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 + index * 0.06 }}
-              >
-                <Link to={`/deployments/${deployment._id}`}>
-                  <Card className="group h-full border-border/60 bg-card/80 p-5 transition-all hover:border-primary/30 hover:shadow-glow">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium text-foreground group-hover:text-primary">
-                          {deployment.repositoryName || 'Unknown Repository'}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {deployment.framework || 'Unknown'} · {formatDuration(deployment.totalTime)}
-                        </p>
+
+          <Suspense
+            fallback={
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Card key={i} className="p-6 border-border/60 bg-card/50">
+                    <div className="space-y-4">
+                      <Skeleton className="h-6 w-3/4 rounded" />
+                      <Skeleton className="h-4 w-full rounded" />
+                      <Skeleton className="h-4 w-1/2 rounded" />
+                      <div className="flex gap-2 pt-4">
+                        <Skeleton className="h-8 w-20 rounded" />
+                        <Skeleton className="h-8 w-20 rounded" />
                       </div>
-                      <StatusBadge status={deployment.status} />
-                    </div>
-                    <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{formatRelativeDate(deployment.createdAt)}</span>
-                      {deployment.publicUrl && (
-                        <span
-                          className="inline-flex items-center gap-1 text-primary"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                          Live
-                        </span>
-                      )}
                     </div>
                   </Card>
-                </Link>
-              </motion.div>
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            icon={Activity}
-            title="No deployments yet"
-            description="Connect a GitHub repository and deploy your first project to see activity here."
-            action={{ label: 'Go to repositories', onClick: () => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }) }}
-          />
-        )}
-      </section>
-
-      {/* Repositories */}
-      <section>
-        <div className="mb-4">
-          <h2 className="font-display text-xl font-semibold text-foreground">GitHub Repositories</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Connect a repository to deploy and manage from CloudOps.
-          </p>
+                ))}
+              </div>
+            }
+          >
+            <RepoList />
+          </Suspense>
         </div>
-        <Suspense
-          fallback={
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Card key={i} className="p-5">
-                  <Skeleton className="h-24 w-full" />
-                </Card>
-              ))}
-            </div>
-          }
-        >
-          <RepoList />
-        </Suspense>
       </section>
     </DashboardLayout>
   );
