@@ -287,6 +287,56 @@ const DeploymentSchema = new mongoose.Schema(
 
     // Metadata
     metadata: mongoose.Schema.Types.Mixed,
+
+    // Audit trail and compliance fields
+    deploymentVersion: {
+      type: Number,
+      default: 1, // Track redeploys/iterations
+    },
+    requestContext: {
+      ipAddress: String,
+      userAgent: String,
+      requestId: String, // Correlate with HTTP logs
+      originalRequest: {
+        method: String,
+        path: String,
+        timestamp: Date,
+      },
+    },
+    phaseMetrics: {
+      cloneStartedAt: Date,
+      cloneDuration: Number, // ms
+      detectStartedAt: Date,
+      detectDuration: Number,
+      buildStartedAt: Date,
+      buildDuration: Number,
+      pushStartedAt: Date,
+      pushDuration: Number,
+      deployStartedAt: Date,
+      deployDuration: Number,
+      totalDuration: Number, // Complete deployment time
+    },
+    // Archive for older deployments
+    archivedAt: Date,
+    archived: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    // For tracking redeploys
+    redeploys: [{
+      deploymentId: mongoose.Schema.Types.ObjectId,
+      timestamp: Date,
+      reason: String,
+      initiatedBy: String,
+    }],
+    // Health check tracking
+    healthCheckHistory: [{
+      timestamp: Date,
+      status: { type: String, enum: ['unknown', 'healthy', 'unhealthy'] },
+      responseTime: Number,
+      message: String,
+    }],
   },
   {
     timestamps: true,
@@ -362,6 +412,14 @@ DeploymentSchema.index({ projectId: 1, createdAt: -1 });
 DeploymentSchema.index({ userId: 1, createdAt: -1 });
 DeploymentSchema.index({ status: 1, createdAt: -1 });
 DeploymentSchema.index({ publicUrl: 1 }, { sparse: true });
+
+// Additional indexes for audit and performance
+DeploymentSchema.index({ userId: 1, deploymentService: 1, createdAt: -1 });
+DeploymentSchema.index({ status: 1, healthStatus: 1, createdAt: -1 });
+DeploymentSchema.index({ archived: 1, createdAt: -1 });
+DeploymentSchema.index({ 'requestContext.requestId': 1 }, { sparse: true });
+DeploymentSchema.index({ provider: 1, createdAt: -1 });
+DeploymentSchema.index({ deploymentVersion: 1 });
 
 // Methods
 DeploymentSchema.methods.addLog = function (source, level, message, data = {}, deploymentService = null) {
